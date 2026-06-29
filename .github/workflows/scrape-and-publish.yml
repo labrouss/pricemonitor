@@ -80,8 +80,30 @@ jobs:
         env:
           DB_BACKEND: sqlite
         run: python3 export_snapshot.py --out snapshot --db combined.db
+      - name: Guard — enough retailers present?
+        id: guard
+        run: |
+          # Don't overwrite the published "latest" with a half-blocked run.
+          # Require at least MIN_RETAILERS chains in the snapshot.
+          MIN_RETAILERS="${MIN_RETAILERS:-4}"
+          n=$(python3 -c "import json;print(len(json.load(open('snapshot/manifest.json'))['retailers']))")
+          echo "retailers in snapshot: $n (need >= $MIN_RETAILERS)"
+          if [ "$n" -lt "$MIN_RETAILERS" ]; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Only $n retailers scraped successfully (need $MIN_RETAILERS). Skipping publish so the existing 'latest' release isn't overwritten with partial data. Likely IP blocks from GitHub's runners — check per-scraper logs for 403s."
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: Publish to Release
+        if: steps.guard.outputs.publish == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPO: ${{ github.repository }}
-        run: ./publish_snapshot.sh snapshot
+        run: bash publish_snapshot.sh snapshot
+      - name: Upload snapshot as artifact (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snapshot-${{ github.run_number }}
+          path: snapshot/
+          retention-days: 7
