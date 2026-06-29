@@ -494,6 +494,22 @@ def api_dedup_resolve(candidate_id):
         s.close()
 
 
+@app.route("/api/sync", methods=["POST"])
+@auth.login_required
+def api_sync():
+    import sync_snapshot, os as _os
+    repo = (request.get_json(silent=True) or {}).get("repo", "labrouss/pricemonitor")
+    s = store()
+    try:
+        res = sync_snapshot.run(s, repo=repo,
+                                token=_os.environ.get("GITHUB_TOKEN"))
+        return jsonify(res)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+    finally:
+        s.close()
+
+
 @app.route("/api/dedup/export.csv")
 @auth.login_required
 def api_dedup_export():

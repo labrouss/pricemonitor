@@ -120,6 +120,14 @@ def main():
     bk.add_argument("--tag", default="manual", help="label for the backup file")
     bk.add_argument("--db", default="prices.db")
 
+    sy = sub.add_parser("sync", help="download the published price snapshot from "
+                                     "GitHub Releases and merge into the local DB")
+    sy.add_argument("--repo", default="labrouss/pricemonitor",
+                    help="owner/repo to pull the latest release from")
+    sy.add_argument("--url", default=None,
+                    help="direct URL to prices-latest.json (overrides --repo)")
+    sy.add_argument("--db", default="prices.db")
+
     args = ap.parse_args()
 
     # doctor runs its own throwaway DBs; it must not touch the real one.
@@ -211,6 +219,10 @@ def main():
         res = store.purge_retailer(r)
         print(f"Deleted {res['price_history']} price rows and {res['offers']} "
               f"offers for '{r}'. Re-scrape to repopulate.")
+    elif args.cmd == "sync":
+        import sync_snapshot
+        sync_snapshot.run(store, repo=args.repo, url=args.url,
+                          token=os.environ.get("GITHUB_TOKEN"))
     elif args.cmd == "dedup":
         if args.prune:
             pr = store.prune_stale_candidates()
