@@ -1,0 +1,24 @@
+# Caddy automatically obtains and renews a Let's Encrypt certificate for
+# {$APP_DOMAIN} and proxies HTTPS traffic to the web app over the internal
+# Docker network. No manual cert handling needed.
+#
+# Requirements:
+#   * APP_DOMAIN in .env (e.g. prices.example.com)
+#   * That domain's DNS A/AAAA record points at this host
+#   * Ports 80 and 443 reachable from the internet (for the ACME challenge)
+#
+# Run with:  docker compose --profile public up -d
+
+{$APP_DOMAIN} {
+	encode gzip
+	reverse_proxy web:5000
+
+	# Basic security headers. Adjust CSP if you add external scripts.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+}

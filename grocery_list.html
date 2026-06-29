@@ -1,0 +1,1640 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#005A9C">
+<title>Λίστα Ψωνίων — Grocery List</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.min.js"></script>
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<style>
+  :root { --gov-blue:#005A9C; --gov-blue-dark:#004576; --bg:#F4F6F9; }
+  body { background: var(--bg); -webkit-tap-highlight-color: transparent;
+         font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif; }
+  .crest { background:
+      repeating-linear-gradient(180deg, #fff 0 6px, var(--gov-blue) 6px 12px); }
+  .tab-active { color: var(--gov-blue); border-color: var(--gov-blue); }
+  .tab-idle { color: #6b7e90; border-color: transparent; }
+  .card-shadow { box-shadow: 0 1px 3px rgba(16,42,67,.08), 0 1px 2px rgba(16,42,67,.06); }
+  .no-scrollbar::-webkit-scrollbar { display:none; }
+  input, select { font-size: 16px; } /* prevents iOS zoom on focus */
+  @keyframes pop { 0%{transform:scale(.96);opacity:.4} 100%{transform:scale(1);opacity:1} }
+  .pop { animation: pop .18s ease-out; }
+</style>
+</head>
+<body class="min-h-screen text-slate-800">
+
+<!-- Header -->
+<header class="bg-[#005A9C] text-white sticky top-0 z-20 card-shadow">
+  <div class="max-w-xl mx-auto px-4 py-3 flex items-center gap-3">
+    <div class="crest w-7 h-9 rounded-sm shrink-0 ring-1 ring-white/40"></div>
+    <div class="leading-tight">
+      <h1 class="text-lg font-bold tracking-tight" data-i18n="app_title">Λίστα Ψωνίων</h1>
+      <p class="text-[11px] text-blue-100 uppercase tracking-wider" data-i18n="app_sub">Grocery List · Expense Analytics</p>
+    </div>
+    <select onchange="setLang(this.value)" id="lang-select"
+      class="ml-auto bg-[#004576] text-white text-xs rounded px-1.5 py-1 outline-none border border-white/20 cursor-pointer">
+      <option value="el">🇬🇷 ΕΛ</option>
+      <option value="en">🇬🇧 EN</option>
+      <option value="de">🇩🇪 DE</option>
+    </select>
+    <i data-lucide="shopping-cart" class="w-6 h-6 text-blue-100"></i>
+  </div>
+  <!-- Tabs -->
+  <div class="max-w-xl mx-auto px-2 flex">
+    <button id="tab-list" onclick="switchTab('list')"
+      class="flex-1 py-3 text-xs font-semibold border-b-[3px] bg-white/0 flex items-center justify-center gap-1.5 tab-active text-white !border-white">
+      <i data-lucide="list-checks" class="w-4 h-4"></i> <span data-i18n="tab_list">List</span>
+    </button>
+    <button id="tab-stores" onclick="switchTab('stores')"
+      class="flex-1 py-3 text-xs font-semibold border-b-[3px] flex items-center justify-center gap-1.5 tab-idle text-blue-100/80 border-transparent">
+      <i data-lucide="store" class="w-4 h-4"></i> <span data-i18n="tab_stores">By Store</span>
+    </button>
+    <button id="tab-changes" onclick="switchTab('changes')"
+      class="flex-1 py-3 text-xs font-semibold border-b-[3px] flex items-center justify-center gap-1.5 tab-idle text-blue-100/80 border-transparent">
+      <i data-lucide="arrow-up-down" class="w-4 h-4"></i> <span data-i18n="tab_changes">Changes</span>
+    </button>
+    <button id="tab-stats" onclick="switchTab('stats')"
+      class="flex-1 py-3 text-xs font-semibold border-b-[3px] flex items-center justify-center gap-1.5 tab-idle text-blue-100/80 border-transparent">
+      <i data-lucide="trending-up" class="w-4 h-4"></i> <span data-i18n="tab_trends">Trends</span>
+    </button>
+  </div>
+
+  <!-- Data source status bar -->
+  <div class="max-w-xl mx-auto px-4 py-1.5 bg-[#004576] text-[11px] flex items-center gap-2">
+    <span id="src-dot" class="w-2 h-2 rounded-full bg-amber-400 shrink-0"></span>
+    <span id="src-label" class="text-blue-100" data-i18n="checking_prices">Checking price data…</span>
+    <button onclick="toggleSettings()" class="ml-auto text-blue-200 hover:text-white flex items-center gap-1">
+      <i data-lucide="settings-2" class="w-3.5 h-3.5"></i> <span data-i18n="data">Data</span>
+    </button>
+  </div>
+</header>
+
+<!-- Settings sheet -->
+<div id="settings" class="hidden fixed inset-0 z-30 bg-black/40" onclick="if(event.target===this)toggleSettings()">
+  <div class="absolute bottom-0 inset-x-0 bg-white rounded-t-2xl p-5 max-w-xl mx-auto">
+    <div class="flex items-center mb-4">
+      <h2 class="text-base font-bold text-slate-800" data-i18n="price_data_source">Price data source</h2>
+      <button onclick="toggleSettings()" class="ml-auto text-slate-400"><i data-lucide="x" class="w-5 h-5"></i></button>
+    </div>
+
+    <label class="text-xs font-semibold text-slate-500 uppercase tracking-wide">Live server (at home)</label>
+    <div class="flex gap-2 mt-1 mb-1">
+      <input id="server-url" placeholder="http://192.168.1.x:5000"
+        class="flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:border-[#005A9C] outline-none">
+      <button onclick="connectLive()" class="bg-[#005A9C] text-white rounded-xl px-4 text-sm font-semibold" data-i18n="connect">Connect</button>
+    </div>
+    <p class="text-[11px] text-slate-400 mb-4">Your computer running <code>webapp.py</code>. Prices update live while connected.</p>
+
+    <label class="text-xs font-semibold text-slate-500 uppercase tracking-wide">Offline snapshot (for the store)</label>
+    <div class="flex gap-2 mt-1 mb-1">
+      <button onclick="downloadSnapshot()" id="snap-dl-btn" class="flex-1 bg-slate-100 text-slate-700 rounded-xl px-4 py-2.5 text-sm font-semibold flex items-center justify-center gap-2">
+        <i data-lucide="download" class="w-4 h-4"></i> Save snapshot from server
+      </button>
+      <label class="flex-1 bg-slate-100 text-slate-700 rounded-xl px-4 py-2.5 text-sm font-semibold flex items-center justify-center gap-2 cursor-pointer">
+        <i data-lucide="upload" class="w-4 h-4"></i> Load file
+        <input id="snap-file" type="file" accept="application/json" class="hidden" onchange="loadSnapshotFile(event)">
+      </label>
+    </div>
+    <p id="snap-info" class="text-[11px] text-slate-400">No snapshot loaded.</p>
+  </div>
+</div>
+
+<main class="max-w-xl mx-auto px-4 pb-32 pt-4">
+
+  <!-- ============ CURRENT LIST VIEW ============ -->
+  <section id="view-list">
+
+    <!-- List selector -->
+    <div class="bg-white rounded-2xl card-shadow p-3 mb-4">
+      <div class="flex items-center gap-2">
+        <i data-lucide="bookmark" class="w-4 h-4 text-[#005A9C] shrink-0"></i>
+        <select id="list-picker" onchange="switchList(this.value)"
+          class="flex-1 min-w-0 font-semibold text-slate-800 bg-transparent outline-none truncate"></select>
+        <button onclick="renameList()" title="Rename" class="text-slate-400 hover:text-[#005A9C] p-1.5 active:scale-90 transition">
+          <i data-lucide="pencil" class="w-4 h-4"></i>
+        </button>
+        <button onclick="newList()" title="New list" class="text-slate-400 hover:text-[#005A9C] p-1.5 active:scale-90 transition">
+          <i data-lucide="plus-square" class="w-4 h-4"></i>
+        </button>
+        <button onclick="deleteList()" title="Delete list" class="text-slate-400 hover:text-red-500 p-1.5 active:scale-90 transition">
+          <i data-lucide="trash-2" class="w-4 h-4"></i>
+        </button>
+      </div>
+      <!-- Planner-only: generate the standalone phone app -->
+      <button id="generate-btn" onclick="generatePhoneApp()"
+        class="hidden w-full mt-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl py-2.5 text-sm font-semibold flex items-center justify-center gap-2 active:scale-[.98] transition">
+        <i data-lucide="smartphone" class="w-4 h-4"></i> Generate phone app for this list
+      </button>
+    </div>
+
+    <!-- Spend comparison card -->
+    <div class="bg-white rounded-2xl card-shadow p-4 mb-4">
+      <div class="grid grid-cols-2 divide-x divide-slate-100">
+        <div class="pr-3">
+          <p class="text-[11px] uppercase tracking-wider text-slate-400 font-semibold" data-i18n="current_cart">Current Cart</p>
+          <p id="current-total" class="text-3xl font-extrabold text-[#005A9C] mt-1">0,00 €</p>
+        </div>
+        <div class="pl-3">
+          <p class="text-[11px] uppercase tracking-wider text-slate-400 font-semibold" data-i18n="last_trip">Last Trip</p>
+          <p id="last-total" class="text-3xl font-extrabold text-slate-300 mt-1">—</p>
+        </div>
+      </div>
+      <div id="compare-row" class="mt-3 hidden items-center gap-1.5 text-sm font-semibold rounded-lg px-3 py-2">
+        <i id="compare-icon" data-lucide="minus" class="w-4 h-4"></i>
+        <span id="compare-text"></span>
+      </div>
+    </div>
+
+    <!-- Add item form -->
+    <div class="bg-white rounded-2xl card-shadow p-4 mb-4">
+      <p class="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
+        <i data-lucide="plus-circle" class="w-4 h-4 text-[#005A9C]"></i> <span data-i18n="add_item">Add Item</span>
+      </p>
+      <div class="grid grid-cols-12 gap-2">
+        <div class="col-span-7 relative">
+          <input id="in-name" placeholder="Item name" data-i18n-ph="item_name" autocomplete="off" oninput="onNameInput()" onfocus="onNameInput()"
+            class="w-full rounded-xl border border-slate-200 px-3 py-2.5 focus:border-[#005A9C] focus:ring-2 focus:ring-[#005A9C]/20 outline-none">
+          <div id="suggest" class="hidden absolute z-10 left-0 right-0 top-full mt-1 bg-white rounded-xl card-shadow border border-slate-100 max-h-64 overflow-y-auto no-scrollbar"></div>
+        </div>
+        <select id="in-cat" class="col-span-5 rounded-xl border border-slate-200 px-2 py-2.5 bg-white focus:border-[#005A9C] outline-none">
+          <option value="Produce" data-i18n="cat_Produce">Produce</option><option value="Dairy" data-i18n="cat_Dairy">Dairy</option><option value="Bakery" data-i18n="cat_Bakery">Bakery</option>
+          <option value="Meat &amp; Fish" data-i18n="cat_Meat &amp; Fish">Meat &amp; Fish</option><option value="Frozen" data-i18n="cat_Frozen">Frozen</option><option value="Drinks" data-i18n="cat_Drinks">Drinks</option>
+          <option value="Pantry" data-i18n="cat_Pantry">Pantry</option><option value="Household" data-i18n="cat_Household">Household</option><option value="Other" data-i18n="cat_Other">Other</option>
+        </select>
+        <div class="col-span-4 relative">
+          <input id="in-qty" type="number" min="1" value="1" inputmode="numeric" class="w-full rounded-xl border border-slate-200 pl-8 pr-2 py-2.5 focus:border-[#005A9C] outline-none">
+          <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">×</span>
+        </div>
+        <div class="col-span-5 relative">
+          <input id="in-price" type="number" min="0" step="0.01" placeholder="0.00" inputmode="decimal" class="w-full rounded-xl border border-slate-200 pl-3 pr-7 py-2.5 focus:border-[#005A9C] outline-none">
+          <span class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">€</span>
+        </div>
+        <button onclick="addItem()" class="col-span-3 bg-[#005A9C] hover:bg-[#004576] text-white rounded-xl font-semibold flex items-center justify-center gap-1 active:scale-95 transition">
+          <i data-lucide="plus" class="w-5 h-5"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- Items grouped by category -->
+    <div id="items-container"></div>
+
+    <!-- Empty list state -->
+    <div id="empty-list" class="text-center py-12 text-slate-400">
+      <i data-lucide="shopping-basket" class="w-12 h-12 mx-auto mb-3 opacity-40"></i>
+      <p class="text-sm"><span data-i18n="cart_empty">Your cart is empty.</span><br><span data-i18n="cart_empty_sub">Add items above to start your shopping trip.</span></p>
+    </div>
+  </section>
+
+  <!-- ============ BY STORE (per-retailer breakdown) ============ -->
+  <section id="view-stores" class="hidden">
+    <!-- Strategy toggle -->
+    <div class="bg-white rounded-2xl card-shadow p-1.5 mb-4 flex gap-1">
+      <button id="strat-cheap" onclick="setStrategy('cheap')"
+        class="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-[#005A9C] text-white flex items-center justify-center gap-1.5">
+        <i data-lucide="badge-euro" class="w-4 h-4"></i> Cheapest
+      </button>
+      <button id="strat-few" onclick="setStrategy('few')"
+        class="flex-1 py-2.5 rounded-xl text-sm font-semibold text-slate-500 flex items-center justify-center gap-1.5">
+        <i data-lucide="map-pin" class="w-4 h-4"></i> Fewest stops
+      </button>
+    </div>
+
+    <!-- Strategy summary -->
+    <div id="strat-summary" class="grid grid-cols-2 gap-2 mb-4"></div>
+
+    <!-- Per-store groups -->
+    <div id="stores-container"></div>
+
+    <div id="stores-empty" class="text-center py-12 text-slate-400">
+      <i data-lucide="store" class="w-12 h-12 mx-auto mb-3 opacity-40"></i>
+      <p class="text-sm"><span data-i18n="stores_empty">Add items with price data to see</span><br><span data-i18n="stores_empty_sub">where to buy each one cheapest.</span></p>
+    </div>
+  </section>
+
+  <!-- ============ PRICE CHANGES VIEW ============ -->
+  <section id="view-changes" class="hidden">
+    <!-- window selector -->
+    <div class="flex items-center gap-2 mb-4">
+      <span class="text-xs font-semibold text-slate-500">Over the last</span>
+      <select id="changes-window" onchange="renderChanges()" class="rounded-lg border border-slate-200 px-2 py-1.5 text-sm bg-white outline-none">
+        <option value="7">7 days</option>
+        <option value="30" selected>30 days</option>
+        <option value="60">60 days</option>
+      </select>
+      <span id="changes-scope" class="ml-auto text-[11px] text-slate-400"></span>
+    </div>
+
+    <!-- My list changes -->
+    <div id="changes-mylist-wrap" class="mb-5">
+      <p class="text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5">
+        <i data-lucide="list" class="w-3.5 h-3.5 text-[#005A9C]"></i> On my lists
+      </p>
+      <div id="changes-mylist"></div>
+    </div>
+
+    <!-- Market-wide changes -->
+    <div>
+      <p class="text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5">
+        <i data-lucide="globe" class="w-3.5 h-3.5 text-[#005A9C]"></i> Across all products
+      </p>
+      <div id="changes-market"></div>
+    </div>
+
+    <div id="changes-empty" class="hidden text-center py-12 text-slate-400">
+      <i data-lucide="arrow-up-down" class="w-12 h-12 mx-auto mb-3 opacity-40"></i>
+      <p class="text-sm" id="changes-empty-msg">No price-change data available.</p>
+    </div>
+  </section>
+
+  <!-- ============ ANALYTICS / TRENDS VIEW ============ -->
+  <section id="view-stats" class="hidden">
+    <!-- Summary stats -->
+    <div id="stats-summary" class="grid grid-cols-3 gap-2 mb-4">
+      <div class="bg-white rounded-xl card-shadow p-3 text-center">
+        <p class="text-[10px] uppercase tracking-wide text-slate-400 font-semibold" data-i18n="trips">Trips</p>
+        <p id="stat-trips" class="text-xl font-extrabold text-[#005A9C]">0</p>
+      </div>
+      <div class="bg-white rounded-xl card-shadow p-3 text-center">
+        <p class="text-[10px] uppercase tracking-wide text-slate-400 font-semibold" data-i18n="avg_trip">Avg / Trip</p>
+        <p id="stat-avg" class="text-xl font-extrabold text-[#005A9C]">—</p>
+      </div>
+      <div class="bg-white rounded-xl card-shadow p-3 text-center">
+        <p class="text-[10px] uppercase tracking-wide text-slate-400 font-semibold" data-i18n="total">Total</p>
+        <p id="stat-sum" class="text-xl font-extrabold text-[#005A9C]">—</p>
+      </div>
+    </div>
+
+    <!-- Chart card -->
+    <div class="bg-white rounded-2xl card-shadow p-4 mb-4">
+      <p class="text-sm font-semibold text-slate-700 mb-1 flex items-center gap-2">
+        <i data-lucide="line-chart" class="w-4 h-4 text-[#005A9C]"></i> Spending Over Time
+      </p>
+      <p class="text-[11px] text-slate-400 mb-3">Total € per shopping trip</p>
+      <div id="chart-empty" class="text-center py-12 text-slate-400">
+        <i data-lucide="bar-chart-3" class="w-12 h-12 mx-auto mb-3 opacity-40"></i>
+        <p class="text-sm"><span data-i18n="no_data">No data yet.</span><br><span data-i18n="complete_first">Complete your first shopping trip to generate the graph!</span></p>
+      </div>
+      <div id="chart-wrap" class="hidden relative" style="height:260px">
+        <canvas id="spendChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Trip history list -->
+    <div id="history-list" class="space-y-2"></div>
+  </section>
+</main>
+
+<!-- List picker (for adding a price mover to a chosen list) -->
+<div id="listpick" class="hidden fixed inset-0 z-30 bg-black/40 items-end sm:items-center justify-center" onclick="if(event.target===this)closeListPick()">
+  <div class="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-xl mx-auto overflow-hidden">
+    <div class="flex items-center px-5 py-4 border-b border-slate-100">
+      <h2 id="listpick-title" class="text-sm font-bold text-slate-800">Add to:</h2>
+      <button onclick="closeListPick()" class="ml-auto text-slate-400"><i data-lucide="x" class="w-5 h-5"></i></button>
+    </div>
+    <div id="listpick-options" class="max-h-80 overflow-y-auto"></div>
+  </div>
+</div>
+
+<!-- Edit item modal -->
+<div id="edit-modal" class="hidden fixed inset-0 z-30 bg-black/40 items-end sm:items-center justify-center" onclick="if(event.target===this)closeEdit()">
+  <div class="bg-white rounded-t-2xl sm:rounded-2xl p-5 w-full max-w-xl mx-auto">
+    <div class="flex items-center mb-4">
+      <h2 class="text-base font-bold text-slate-800" data-i18n="edit_item">Edit item</h2>
+      <button onclick="closeEdit()" class="ml-auto text-slate-400"><i data-lucide="x" class="w-5 h-5"></i></button>
+    </div>
+    <div class="space-y-3">
+      <div>
+        <label class="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Name</label>
+        <input id="edit-name" class="w-full mt-1 rounded-xl border border-slate-200 px-3 py-2.5 focus:border-[#005A9C] outline-none">
+      </div>
+      <div>
+        <label class="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Category</label>
+        <select id="edit-cat" class="w-full mt-1 rounded-xl border border-slate-200 px-3 py-2.5 bg-white focus:border-[#005A9C] outline-none">
+          <option value="Produce" data-i18n="cat_Produce">Produce</option><option value="Dairy" data-i18n="cat_Dairy">Dairy</option><option value="Bakery" data-i18n="cat_Bakery">Bakery</option>
+          <option value="Meat &amp; Fish" data-i18n="cat_Meat &amp; Fish">Meat &amp; Fish</option><option value="Frozen" data-i18n="cat_Frozen">Frozen</option><option value="Drinks" data-i18n="cat_Drinks">Drinks</option>
+          <option value="Pantry" data-i18n="cat_Pantry">Pantry</option><option value="Household" data-i18n="cat_Household">Household</option><option value="Other" data-i18n="cat_Other">Other</option>
+        </select>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Quantity</label>
+          <input id="edit-qty" type="number" min="1" inputmode="numeric" class="w-full mt-1 rounded-xl border border-slate-200 px-3 py-2.5 focus:border-[#005A9C] outline-none">
+        </div>
+        <div>
+          <label class="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Price (€)</label>
+          <input id="edit-price" type="number" min="0" step="0.01" inputmode="decimal" class="w-full mt-1 rounded-xl border border-slate-200 px-3 py-2.5 focus:border-[#005A9C] outline-none">
+        </div>
+      </div>
+      <button onclick="saveEdit()" class="w-full bg-[#005A9C] hover:bg-[#004576] text-white rounded-xl py-3 font-bold flex items-center justify-center gap-2 active:scale-[.98] transition">
+        <i data-lucide="save" class="w-5 h-5"></i> Save changes
+      </button>
+
+      <!-- Price over time for this item -->
+      <div class="pt-2 border-t border-slate-100">
+        <p class="text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+          <i data-lucide="activity" class="w-3.5 h-3.5"></i> Price over time
+        </p>
+        <div id="item-trend-empty" class="text-xs text-slate-400 py-3 text-center">
+          Pick this item from search (with price data) to see its trend.
+        </div>
+        <div id="item-trend-wrap" class="hidden relative" style="height:160px">
+          <canvas id="itemTrendChart"></canvas>
+        </div>
+        <div id="item-trend-legend" class="chart-legend-sm flex gap-3 flex-wrap mt-2 text-[11px] text-slate-400"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Sticky complete button -->
+<div id="complete-bar" class="fixed bottom-0 inset-x-0 z-20 bg-white border-t border-slate-200 card-shadow">
+  <div class="max-w-xl mx-auto px-4 py-3">
+    <button onclick="completeTrip()" id="complete-btn"
+      class="w-full bg-[#005A9C] hover:bg-[#004576] disabled:bg-slate-300 text-white rounded-xl py-3.5 font-bold text-base flex items-center justify-center gap-2 active:scale-[.98] transition">
+      <i data-lucide="check-circle-2" class="w-5 h-5"></i>
+      <span data-i18n="complete_shopping">Ολοκλήρωση Αγορών</span> · <span id="complete-total">0,00 €</span>
+    </button>
+  </div>
+</div>
+
+<script>
+/* ===== i18n ===== */
+const I18N = {
+  el: {
+    app_title:"Λίστα Ψωνίων", app_sub:"Λίστα Ψωνίων · Ανάλυση Εξόδων",
+    tab_list:"Λίστα", tab_stores:"Ανά Κατάστημα", tab_changes:"Μεταβολές", tab_trends:"Τάσεις",
+    data:"Δεδομένα", checking_prices:"Έλεγχος δεδομένων τιμών…",
+    current_cart:"Τρέχον Καλάθι", last_trip:"Προηγ. Αγορά",
+    add_item:"Προσθήκη Είδους", item_name:"Όνομα είδους",
+    cat_Produce:"Φρούτα & Λαχανικά", cat_Dairy:"Γαλακτοκομικά", cat_Bakery:"Αρτοποιεία",
+    "cat_Meat & Fish":"Κρέας & Ψάρι", cat_Frozen:"Κατεψυγμένα", cat_Drinks:"Ποτά",
+    cat_Pantry:"Παντοπωλείο", cat_Household:"Είδη Σπιτιού", cat_Other:"Άλλα",
+    cart_empty:"Το καλάθι σας είναι άδειο.", cart_empty_sub:"Προσθέστε είδη παραπάνω για να ξεκινήσετε.",
+    cheapest:"Φθηνότερα", fewest_stops:"Λιγότερες στάσεις",
+    stores_empty:"Προσθέστε είδη με δεδομένα τιμών για να δείτε", stores_empty_sub:"πού είναι φθηνότερο το καθένα.",
+    trips:"Αγορές", avg_trip:"Μ.Ο./Αγορά", total:"Σύνολο",
+    spending_over_time:"Έξοδα στον χρόνο", total_eur_per_trip:"Σύνολο € ανά αγορά",
+    no_data:"Δεν υπάρχουν δεδομένα ακόμη.", complete_first:"Ολοκληρώστε την πρώτη σας αγορά για το γράφημα!",
+    over_last:"Τις τελευταίες", on_my_lists:"Στις λίστες μου", all_products:"Όλα τα προϊόντα",
+    biggest_drops:"Μεγαλύτερες πτώσεις", biggest_increases:"Μεγαλύτερες αυξήσεις",
+    complete_shopping:"Ολοκλήρωση Αγορών", edit_item:"Επεξεργασία είδους",
+    name:"Όνομα", category:"Κατηγορία", quantity:"Ποσότητα", price:"Τιμή (€)", save_changes:"Αποθήκευση",
+    price_over_time:"Τιμή στον χρόνο", you_paid:"Πληρώσατε",
+    price_data_source:"Πηγή δεδομένων τιμών", live_server:"Ζωντανός διακομιστής (στο σπίτι)",
+    connect:"Σύνδεση", offline_snapshot:"Στιγμιότυπο εκτός σύνδεσης (για το κατάστημα)",
+    save_snapshot:"Αποθήκευση στιγμιότυπου", load_file:"Φόρτωση αρχείου", no_snapshot:"Δεν φορτώθηκε στιγμιότυπο.",
+    generate_phone:"Δημιουργία εφαρμογής τηλεφώνου για αυτή τη λίστα",
+    new_list:"Νέα λίστα…", rename:"Μετονομασία", del:"Διαγραφή",
+    days7:"7 ημέρες", days30:"30 ημέρες", days60:"60 ημέρες",
+    live_connected:"Ζωντανές τιμές συνδεδεμένες", manual_entry:"Χειροκίνητη εισαγωγή (χωρίς τιμές)",
+    offline_catalog:"Κατάλογος εκτός σύνδεσης", products:"προϊόντα",
+    add_search_track:"Προσθέστε είδη από την αναζήτηση για παρακολούθηση τιμών.",
+  },
+  en: {
+    app_title:"Grocery List", app_sub:"Grocery List · Expense Analytics",
+    tab_list:"List", tab_stores:"By Store", tab_changes:"Changes", tab_trends:"Trends",
+    data:"Data", checking_prices:"Checking price data…",
+    current_cart:"Current Cart", last_trip:"Last Trip",
+    add_item:"Add Item", item_name:"Item name",
+    cat_Produce:"Produce", cat_Dairy:"Dairy", cat_Bakery:"Bakery",
+    "cat_Meat & Fish":"Meat & Fish", cat_Frozen:"Frozen", cat_Drinks:"Drinks",
+    cat_Pantry:"Pantry", cat_Household:"Household", cat_Other:"Other",
+    cart_empty:"Your cart is empty.", cart_empty_sub:"Add items above to start your shopping trip.",
+    cheapest:"Cheapest", fewest_stops:"Fewest stops",
+    stores_empty:"Add items with price data to see", stores_empty_sub:"where to buy each one cheapest.",
+    trips:"Trips", avg_trip:"Avg / Trip", total:"Total",
+    spending_over_time:"Spending Over Time", total_eur_per_trip:"Total € per shopping trip",
+    no_data:"No data yet.", complete_first:"Complete your first shopping trip to generate the graph!",
+    over_last:"Over the last", on_my_lists:"On my lists", all_products:"Across all products",
+    biggest_drops:"Biggest drops", biggest_increases:"Biggest increases",
+    complete_shopping:"Complete Shopping", edit_item:"Edit item",
+    name:"Name", category:"Category", quantity:"Quantity", price:"Price (€)", save_changes:"Save changes",
+    price_over_time:"Price over time", you_paid:"You paid",
+    price_data_source:"Price data source", live_server:"Live server (at home)",
+    connect:"Connect", offline_snapshot:"Offline snapshot (for the store)",
+    save_snapshot:"Save snapshot from server", load_file:"Load file", no_snapshot:"No snapshot loaded.",
+    generate_phone:"Generate phone app for this list",
+    new_list:"New list…", rename:"Rename", del:"Delete",
+    days7:"7 days", days30:"30 days", days60:"60 days",
+    live_connected:"Live prices connected", manual_entry:"Manual entry (no price data)",
+    offline_catalog:"Offline catalog", products:"products",
+    add_search_track:"Add items from search to track their price changes.",
+  },
+  de: {
+    app_title:"Einkaufsliste", app_sub:"Einkaufsliste · Ausgabenanalyse",
+    tab_list:"Liste", tab_stores:"Nach Geschäft", tab_changes:"Änderungen", tab_trends:"Trends",
+    data:"Daten", checking_prices:"Preisdaten werden geprüft…",
+    current_cart:"Aktueller Warenkorb", last_trip:"Letzter Einkauf",
+    add_item:"Artikel hinzufügen", item_name:"Artikelname",
+    cat_Produce:"Obst & Gemüse", cat_Dairy:"Milchprodukte", cat_Bakery:"Backwaren",
+    "cat_Meat & Fish":"Fleisch & Fisch", cat_Frozen:"Tiefkühl", cat_Drinks:"Getränke",
+    cat_Pantry:"Vorrat", cat_Household:"Haushalt", cat_Other:"Sonstiges",
+    cart_empty:"Ihr Warenkorb ist leer.", cart_empty_sub:"Fügen Sie oben Artikel hinzu, um zu beginnen.",
+    cheapest:"Günstigste", fewest_stops:"Wenigste Stopps",
+    stores_empty:"Artikel mit Preisdaten hinzufügen, um zu sehen,", stores_empty_sub:"wo jeder am günstigsten ist.",
+    trips:"Einkäufe", avg_trip:"Ø / Einkauf", total:"Gesamt",
+    spending_over_time:"Ausgaben im Zeitverlauf", total_eur_per_trip:"Gesamt € pro Einkauf",
+    no_data:"Noch keine Daten.", complete_first:"Schließen Sie Ihren ersten Einkauf ab, um das Diagramm zu erstellen!",
+    over_last:"In den letzten", on_my_lists:"Auf meinen Listen", all_products:"Alle Produkte",
+    biggest_drops:"Größte Rückgänge", biggest_increases:"Größte Anstiege",
+    complete_shopping:"Einkauf abschließen", edit_item:"Artikel bearbeiten",
+    name:"Name", category:"Kategorie", quantity:"Menge", price:"Preis (€)", save_changes:"Änderungen speichern",
+    price_over_time:"Preis im Zeitverlauf", you_paid:"Bezahlt",
+    price_data_source:"Preisdatenquelle", live_server:"Live-Server (zu Hause)",
+    connect:"Verbinden", offline_snapshot:"Offline-Snapshot (für das Geschäft)",
+    save_snapshot:"Snapshot vom Server speichern", load_file:"Datei laden", no_snapshot:"Kein Snapshot geladen.",
+    generate_phone:"Telefon-App für diese Liste erstellen",
+    new_list:"Neue Liste…", rename:"Umbenennen", del:"Löschen",
+    days7:"7 Tage", days30:"30 Tage", days60:"60 Tage",
+    live_connected:"Live-Preise verbunden", manual_entry:"Manuelle Eingabe (keine Preisdaten)",
+    offline_catalog:"Offline-Katalog", products:"Produkte",
+    add_search_track:"Fügen Sie Artikel aus der Suche hinzu, um Preisänderungen zu verfolgen.",
+  }
+};
+let LANG = localStorage.getItem("grocery_lang") || "el";
+function t(key){ return (I18N[LANG] && I18N[LANG][key]) || (I18N.en[key]) || key; }
+function setLang(l){
+  LANG = l; localStorage.setItem("grocery_lang", l);
+  document.documentElement.lang = l;
+  applyI18n();
+  // re-render dynamic views
+  try { renderCart(); } catch(e){}
+  try { if(typeof switchTab==='function'){ const cur=document.querySelector('[id^=view-]:not(.hidden)'); } } catch(e){}
+}
+function applyI18n(){
+  document.querySelectorAll('[data-i18n]').forEach(el=>{
+    el.textContent = t(el.getAttribute('data-i18n'));
+  });
+  document.querySelectorAll('[data-i18n-ph]').forEach(el=>{
+    el.placeholder = t(el.getAttribute('data-i18n-ph'));
+  });
+}
+
+/* ===== BAKED_DATA_PLACEHOLDER ===== */
+const BAKED = window.BAKED || null;   // {generated_at, catalog:[...], list:{name,items}, retailers:[]}
+
+const LS_TRIPS = "grocery_trips_v1";
+const LS_LISTS  = "grocery_lists_v1";      // {lists:[{id,name,items:[...]}], activeId}
+const LS_CART_OLD = "grocery_cart_v1";     // legacy single cart (migrated)
+const LS_SERVER = "grocery_server_v1";
+const LS_SNAP  = "grocery_snapshot_v1";
+const CAT_ICONS = {
+  "Produce":"carrot","Dairy":"milk","Bakery":"croissant","Meat & Fish":"fish",
+  "Frozen":"snowflake","Drinks":"cup-soda","Pantry":"package","Household":"spray-can","Other":"shopping-bag"
+};
+let trips = load(LS_TRIPS, []);
+let chart = null;
+
+// ----- Multiple named lists -----
+let listsData = load(LS_LISTS, null);
+if(!listsData){
+  // migrate a legacy single cart, or start fresh
+  const legacy = load(LS_CART_OLD, []);
+  const first = { id: Date.now(), name: "My List", items: legacy };
+  listsData = { lists: [first], activeId: first.id };
+  save(LS_LISTS, listsData);
+}
+// If this is a baked file from the home Planner, import its list once.
+// Preserve the DB list id and per-item server ids so edits can sync back.
+if(BAKED && BAKED.list && BAKED.list.items && !load("grocery_baked_imported", false)){
+  const imported = {
+    id: Date.now()+1,
+    serverId: BAKED.list.id || null,     // the DB list id (for sync-back)
+    name: BAKED.list.name || "Shopping list",
+    items: BAKED.list.items.map(it => ({
+      ...it,
+      id: Date.now()+Math.random(),      // local id
+      serverId: it.id || null            // DB list_item id (numeric) if present
+    }))
+  };
+  listsData.lists.unshift(imported);
+  listsData.activeId = imported.id;
+  listsData.deletedServerIds = [];       // track removals for sync
+  save(LS_LISTS, listsData);
+  save("grocery_baked_imported", true);
+}
+function activeList(){
+  return listsData.lists.find(l => l.id === listsData.activeId) || listsData.lists[0];
+}
+// `cart` is a live reference to the active list's items
+let cart = activeList().items;
+
+function saveLists(){ save(LS_LISTS, listsData); }
+function newId(){ return Date.now() + Math.floor(Math.random()*1000); }
+
+// When lists came from the server (planner mode), mirror mutations to the DB.
+function serverMode(){ return !BAKED && Prices.live && listsData.fromServer; }
+async function srv(method, path, body){
+  return fetch(Prices.server + path, {
+    method, headers: {"Content-Type":"application/json"},
+    body: body ? JSON.stringify(body) : undefined
+  });
+}
+
+// ============ DATABASE LIST SYNC ============
+// At home (server reachable) the grocery app uses the SAME lists as the
+// price-monitor planner. Two paths:
+//   - planner mode (not baked): pull lists live from /api/lists.
+//   - baked offline file: on reconnect, push our edits back to the DB list.
+
+async function loadServerLists(){
+  // Only when connected and NOT a baked offline file.
+  if(BAKED || !Prices.server) return false;
+  try {
+    const r = await fetch(Prices.server + "/api/lists");
+    if(!r.ok) return false;
+    const dbLists = await r.json();
+    if(!Array.isArray(dbLists)) return false;
+    // Pull each list's items via its review endpoint.
+    const lists = [];
+    for(const dl of dbLists){
+      const rev = await (await fetch(Prices.server + "/api/lists/" + dl.id)).json();
+      lists.push({
+        id: dl.id, serverId: dl.id, name: dl.name,
+        items: (rev.items || []).map(it => ({
+          id: it.id, serverId: it.id, name: it.name,
+          cat: it.category || "Other", qty: it.qty || 1,
+          price: it.current_min != null ? it.current_min : (it.added_price || 0),
+          productId: it.product_id,
+          // carry cross-chain prices so the By Store breakdown works
+          spread: (it.current_prices && Object.keys(it.current_prices).length)
+                    ? it.current_prices : null
+        }))
+      });
+    }
+    if(lists.length){
+      listsData = { lists, activeId: lists[0].id, fromServer: true };
+      cart = activeList().items;
+      saveLists();
+      return true;
+    }
+  } catch(e){ /* offline; keep localStorage lists */ }
+  return false;
+}
+
+async function syncBakedListBack(){
+  // For the baked offline file: if a server becomes reachable, push edits to
+  // the matching DB list (qty/name/category updates, new items, deletions).
+  if(!BAKED) return;
+  const al = activeList();
+  if(!al || !al.serverId) return;            // not a DB-backed list
+  if(!Prices.server) return;
+  try {
+    const payload = {
+      items: al.items.map(it => ({
+        server_id: (typeof it.serverId === "number") ? it.serverId : null,
+        name: it.name, cat: it.cat, qty: it.qty,
+        price: it.price, productId: it.productId
+      })),
+      deleted_ids: (listsData.deletedServerIds || []).filter(x => typeof x === "number")
+    };
+    const r = await fetch(Prices.server + "/api/lists/" + al.serverId + "/sync", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(payload)
+    });
+    if(r.ok){
+      const rev = await r.json();
+      // Adopt the server's authoritative ids back into our items.
+      al.items = (rev.items || []).map(it => ({
+        id: Date.now()+Math.random(), serverId: it.id, name: it.name,
+        cat: it.category || "Other", qty: it.qty || 1,
+        price: it.current_min != null ? it.current_min : (it.added_price || 0),
+        productId: it.product_id
+      }));
+      cart = al.items;
+      listsData.deletedServerIds = [];
+      saveLists();
+      renderCart();
+      const lbl = document.getElementById("src-label");
+      if(lbl) lbl.textContent = "Synced with server · " + (rev.name || "list");
+      return true;
+    }
+  } catch(e){ /* still offline; will retry next time */ }
+  return false;
+}
+
+function load(k, def){ try { return JSON.parse(localStorage.getItem(k)) ?? def; } catch { return def; } }
+function save(k, v){ localStorage.setItem(k, JSON.stringify(v)); }
+function eur(n){ return n.toLocaleString("el-GR",{minimumFractionDigits:2,maximumFractionDigits:2}) + " €"; }
+function cartTotal(){ return cart.reduce((s,i)=> s + i.price * i.qty, 0); }
+
+// ============ PRICE DATA SOURCE (baked catalog / live API / snapshot) ============
+const Prices = {
+  server: localStorage.getItem(LS_SERVER) || "",
+  live: false,
+  // Baked catalog travels inside this file (from the home Planner); fully offline.
+  baked: (BAKED && BAKED.catalog) ? BAKED.catalog : null,
+  snapshot: load(LS_SNAP, null),
+
+  async check(){
+    if(this.baked){ updateSourceBar(); return; }   // baked file works offline
+    if(!this.server && location.protocol.startsWith("http")){
+      this.server = location.origin;
+    }
+    this.live = await this.ping();
+    updateSourceBar();
+  },
+  async ping(){
+    if(!this.server) return false;
+    try {
+      const c = new AbortController(); setTimeout(()=>c.abort(), 1500);
+      const r = await fetch(this.server + "/api/stats", {signal:c.signal});
+      return r.ok;
+    } catch { return false; }
+  },
+  // Search: baked catalog first (offline), then live server, then snapshot.
+  async search(q){
+    q = q.trim();
+    if(q.length < 2) return [];
+    if(this.baked){
+      const nq = normalizeGr(q);
+      return this.baked.filter(p => normalizeGr(p.name).includes(nq)).slice(0,25);
+    }
+    if(this.live){
+      try {
+        const r = await fetch(this.server + "/api/search?limit=20&q=" + encodeURIComponent(q));
+        if(r.ok){
+          const rows = await r.json();
+          return rows.map(p => ({
+            id:p.product_id, name:p.name, brand:p.brand, category:p.category,
+            min:p.min_price, max:p.max_price,
+            prices:Object.fromEntries(p.offers.filter(o=>o.price!=null).map(o=>[o.retailer,o.price]))
+          }));
+        }
+      } catch {}
+      this.live = false; updateSourceBar();
+    }
+    if(this.snapshot && this.snapshot.products){
+      const nq = normalizeGr(q);
+      return this.snapshot.products.filter(p => normalizeGr(p.name).includes(nq)).slice(0,20);
+    }
+    return [];
+  }
+};
+
+// Greek/accent-insensitive matching for the offline snapshot
+function normalizeGr(s){
+  return (s||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().trim();
+}
+
+function updateSourceBar(){
+  const dot = document.getElementById("src-dot");
+  const lbl = document.getElementById("src-label");
+  if(Prices.baked){
+    dot.className = "w-2 h-2 rounded-full bg-green-400 shrink-0";
+    const d = BAKED.generated_at ? new Date(BAKED.generated_at).toLocaleDateString(LANG+"-"+LANG.toUpperCase()) : "";
+    lbl.textContent = `${t("offline_catalog")} · ${Prices.baked.length} ${t("products")}${d?` · ${d}`:""}`;
+  } else if(Prices.live){
+    dot.className = "w-2 h-2 rounded-full bg-green-400 shrink-0";
+    lbl.textContent = t("live_connected");
+  } else if(Prices.snapshot){
+    dot.className = "w-2 h-2 rounded-full bg-amber-400 shrink-0";
+    const d = Prices.snapshot.generated_at ? new Date(Prices.snapshot.generated_at).toLocaleDateString(LANG) : "";
+    lbl.textContent = `${t("offline_snapshot")} · ${Prices.snapshot.count||0} ${t("products")}${d?` · ${d}`:""}`;
+  } else {
+    dot.className = "w-2 h-2 rounded-full bg-slate-400 shrink-0";
+    lbl.textContent = t("manual_entry");
+  }
+}
+
+function toggleSettings(){
+  const s = document.getElementById("settings");
+  s.classList.toggle("hidden");
+  if(!s.classList.contains("hidden")){
+    document.getElementById("server-url").value = Prices.server || "";
+    const info = document.getElementById("snap-info");
+    info.textContent = Prices.snapshot
+      ? `Snapshot loaded: ${Prices.snapshot.count} products (${new Date(Prices.snapshot.generated_at).toLocaleString("el-GR")}).`
+      : "No snapshot loaded.";
+    icons();
+  }
+}
+async function connectLive(){
+  Prices.server = document.getElementById("server-url").value.trim().replace(/\/$/,"");
+  localStorage.setItem(LS_SERVER, Prices.server);
+  Prices.live = await Prices.ping();
+  updateSourceBar();
+  document.getElementById("src-label").textContent =
+    Prices.live ? "Live prices connected" : "Could not reach server — check the address";
+}
+async function downloadSnapshot(){
+  if(!Prices.server){ alert("Set and connect a server first."); return; }
+  const btn = document.getElementById("snap-dl-btn");
+  btn.textContent = "Saving…";
+  try {
+    const r = await fetch(Prices.server + "/api/export");
+    const data = await r.json();
+    Prices.snapshot = data;
+    save(LS_SNAP, data);
+    updateSourceBar(); toggleSettings();
+  } catch(e){ alert("Could not fetch snapshot: " + e.message); }
+  btn.innerHTML = '<i data-lucide="download" class="w-4 h-4"></i> Save snapshot from server'; icons();
+}
+function loadSnapshotFile(ev){
+  const f = ev.target.files[0]; if(!f) return;
+  const rd = new FileReader();
+  rd.onload = () => {
+    try {
+      const data = JSON.parse(rd.result);
+      Prices.snapshot = data; save(LS_SNAP, data);
+      updateSourceBar(); toggleSettings();
+    } catch { alert("That file isn't a valid snapshot."); }
+  };
+  rd.readAsText(f);
+}
+
+// ============ AUTOCOMPLETE ============
+let suggestTimer = null, lastMatches = [];
+function onNameInput(){
+  const q = document.getElementById("in-name").value;
+  clearTimeout(suggestTimer);
+  suggestTimer = setTimeout(async ()=>{
+    const matches = await Prices.search(q);
+    lastMatches = matches;
+    renderSuggest(matches);
+  }, 160);
+}
+function renderSuggest(matches){
+  const box = document.getElementById("suggest");
+  if(!matches.length){ box.classList.add("hidden"); box.innerHTML=""; return; }
+  box.classList.remove("hidden");
+  box.innerHTML = matches.map((m,idx) => `
+    <button onclick="pickSuggestion(${idx})" class="w-full text-left px-3 py-2.5 hover:bg-[#F4F6F9] border-b border-slate-50 last:border-0 flex items-center gap-2">
+      <div class="min-w-0 flex-1">
+        <p class="text-sm font-medium text-slate-800 truncate">${escapeHtml(m.name)}</p>
+        <p class="text-[11px] text-slate-400">${escapeHtml(m.category||"")}${m.brand?" · "+escapeHtml(m.brand):""}</p>
+      </div>
+      ${m.min!=null ? `<span class="text-sm font-bold text-[#005A9C] shrink-0">${eur(m.min)}</span>` : ""}
+    </button>`).join("");
+}
+function pickSuggestion(idx){
+  const m = lastMatches[idx]; if(!m) return;
+  document.getElementById("in-name").value = m.name;
+  if(m.category) document.getElementById("in-cat").value = mapCategory(m.category);
+  if(m.min!=null) document.getElementById("in-price").value = m.min.toFixed(2);
+  document.getElementById("suggest").classList.add("hidden");
+  // stash the cross-chain prices + product id so we can show the spread,
+  // the per-retailer breakdown, and the market price history later.
+  pendingSpread = m.prices || null;
+  pendingProductId = m.id != null ? m.id : null;
+  showPickedSpread(m);
+  document.getElementById("in-price").focus();
+}
+let pendingSpread = null, pendingProductId = null;
+function showPickedSpread(m){
+  // brief inline hint of where it's cheapest/most expensive
+  if(!m.prices || Object.keys(m.prices).length < 2) return;
+  const entries = Object.entries(m.prices).sort((a,b)=>a[1]-b[1]);
+  const lo = entries[0], hi = entries[entries.length-1];
+  const hint = document.getElementById("price-hint") || (()=>{
+    const d = document.createElement("div"); d.id="price-hint";
+    d.className="col-span-12 text-[11px] rounded-lg bg-blue-50 text-[#005A9C] px-3 py-2 flex items-center gap-2";
+    document.querySelector("#in-price").closest(".grid").appendChild(d); return d;
+  })();
+  hint.innerHTML = `<i data-lucide="tag" class="w-3.5 h-3.5"></i> Cheapest <b>${eur(lo[1])}</b> at ${lo[0]} · dearest ${eur(hi[1])} at ${hi[0]} · across ${entries.length} chains`;
+  icons();
+}
+
+// Map a data category to one of our list categories
+function mapCategory(c){
+  const t = normalizeGr(c);
+  if(/γαλακτ|dairy|τυρ|γιαουρτ/.test(t)) return "Dairy";
+  if(/φρουτ|λαχαν|produce|μαναβ/.test(t)) return "Produce";
+  if(/αρτ|ψωμ|bakery|φουρν/.test(t)) return "Bakery";
+  if(/κρεα|ψαρ|meat|fish|θαλασσ/.test(t)) return "Meat & Fish";
+  if(/καταψ|frozen|παγωτ/.test(t)) return "Frozen";
+  if(/ποτ|αναψυκ|νερο|χυμ|καφε|drink|beverage/.test(t)) return "Drinks";
+  if(/καθαρ|χαρτ|household|απορρυπ/.test(t)) return "Household";
+  if(/.+/.test(t)) return "Pantry";
+  return "Other";
+}
+
+// ---------- Tabs ----------
+function switchTab(which){
+  const views = {list:"view-list", stores:"view-stores", changes:"view-changes", stats:"view-stats"};
+  Object.entries(views).forEach(([k,id])=>
+    document.getElementById(id).classList.toggle("hidden", k!==which));
+  document.getElementById("complete-bar").classList.toggle("hidden", which!=="list");
+  setTab("tab-list", which==="list");
+  setTab("tab-stores", which==="stores");
+  setTab("tab-changes", which==="changes");
+  setTab("tab-stats", which==="stats");
+  if(which==="stats") renderStats();
+  if(which==="stores") renderStores();
+  if(which==="changes") renderChanges();
+}
+function setTab(id, active){
+  const el = document.getElementById(id);
+  el.classList.toggle("tab-active", active);
+  el.classList.toggle("!border-white", active);
+  el.classList.toggle("text-white", active);
+  el.classList.toggle("tab-idle", !active);
+  el.classList.toggle("text-blue-100/80", !active);
+  el.classList.toggle("border-transparent", !active);
+}
+
+// ---------- Items ----------
+function addItem(){
+  const name = document.getElementById("in-name").value.trim();
+  const cat  = document.getElementById("in-cat").value;
+  const qty  = Math.max(1, parseInt(document.getElementById("in-qty").value) || 1);
+  const price= parseFloat(document.getElementById("in-price").value) || 0;
+  if(!name){ document.getElementById("in-name").focus(); return; }
+  const item = { id: Date.now()+Math.random(), name, cat, qty, price,
+              spread: pendingSpread, productId: pendingProductId };
+  cart.push(item);
+  saveLists();
+  // In planner mode, persist to the database list too.
+  if(serverMode() && activeList().serverId){
+    srv("POST", "/api/lists/" + activeList().serverId + "/items",
+        {name, category: cat, qty, product_id: pendingProductId, added_price: price})
+      .then(r => r && r.ok ? r.json() : null)
+      .then(res => { if(res && res.id){ item.serverId = res.id; saveLists(); } })
+      .catch(()=>{});
+  }
+  pendingSpread = null; pendingProductId = null;
+  const hint = document.getElementById("price-hint"); if(hint) hint.remove();
+  document.getElementById("suggest").classList.add("hidden");
+  document.getElementById("in-name").value = "";
+  document.getElementById("in-price").value = "";
+  document.getElementById("in-qty").value = "1";
+  document.getElementById("in-name").focus();
+  renderCart();
+}
+function removeItem(id){
+  const al = activeList();
+  const gone = al.items.find(i => i.id === id);
+  // If this item came from the DB (has a serverId), remember it for sync-back.
+  if(gone && gone.serverId){
+    listsData.deletedServerIds = listsData.deletedServerIds || [];
+    listsData.deletedServerIds.push(gone.serverId);
+    if(serverMode()){ srv("DELETE", "/api/list-items/" + gone.serverId).catch(()=>{}); }
+  }
+  al.items = al.items.filter(i => i.id !== id);
+  cart = al.items;
+  saveLists();
+  renderCart();
+}
+function toggleDone(id){
+  const it = cart.find(i => i.id === id); if(!it) return;
+  it.done = !it.done;
+  saveLists();
+  renderCart();
+}
+
+function renderCart(){
+  renderListPicker();
+  const c = document.getElementById("items-container");
+  const empty = document.getElementById("empty-list");
+  c.innerHTML = "";
+  if(cart.length === 0){ empty.classList.remove("hidden"); }
+  else { empty.classList.add("hidden"); }
+
+  // group by category
+  const groups = {};
+  cart.forEach(i => (groups[i.cat] = groups[i.cat] || []).push(i));
+  Object.keys(groups).forEach(cat => {
+    const items = groups[cat];
+    const sub = items.reduce((s,i)=> s + i.price*i.qty, 0);
+    const card = document.createElement("div");
+    card.className = "bg-white rounded-2xl card-shadow mb-3 overflow-hidden pop";
+    card.innerHTML = `
+      <div class="flex items-center gap-2 px-4 py-2.5 bg-[#F4F6F9] border-b border-slate-100">
+        <i data-lucide="${CAT_ICONS[cat]||'shopping-bag'}" class="w-4 h-4 text-[#005A9C]"></i>
+        <span class="text-sm font-semibold text-slate-700">${cat}</span>
+        <span class="ml-auto text-sm font-bold text-[#005A9C]">${eur(sub)}</span>
+      </div>
+      <div>${items.map(i => {
+        let spreadHint = "";
+        if(i.spread && Object.keys(i.spread).length >= 1){
+          const e = Object.entries(i.spread).sort((a,b)=>a[1]-b[1]);
+          const lo = e[0];
+          const cheapHere = Math.abs(i.price - lo[1]) < 0.005;
+          spreadHint = `<p class="text-[11px] mt-0.5 ${cheapHere?'text-green-600':'text-amber-600'} flex items-center gap-1">
+            <i data-lucide="${cheapHere?'check':'tag'}" class="w-3 h-3"></i>
+            ${cheapHere ? `cheapest (${lo[0]})` : `cheaper at ${lo[0]}: ${eur(lo[1])}`}</p>`;
+        }
+        const done = i.done ? "opacity-50" : "";
+        const strike = i.done ? "line-through text-slate-400" : "text-slate-800";
+        return `
+        <div class="flex items-center gap-2 px-4 py-2.5 border-b border-slate-50 last:border-0 ${done}">
+          <button onclick="toggleDone(${i.id})" class="shrink-0 w-5 h-5 rounded-md border-2 ${i.done?'bg-[#005A9C] border-[#005A9C]':'border-slate-300'} flex items-center justify-center active:scale-90 transition">
+            ${i.done?'<i data-lucide="check" class="w-3 h-3 text-white"></i>':''}
+          </button>
+          <div class="min-w-0 flex-1 cursor-pointer" onclick="editItem(${i.id})">
+            <p class="text-sm font-medium ${strike} truncate">${escapeHtml(i.name)}</p>
+            <p class="text-xs text-slate-400">${i.qty} × ${eur(i.price)}</p>
+            ${spreadHint}
+          </div>
+          <span class="text-sm font-semibold text-slate-700">${eur(i.price*i.qty)}</span>
+          <button onclick="editItem(${i.id})" class="text-slate-300 hover:text-[#005A9C] active:scale-90 transition p-1">
+            <i data-lucide="pencil" class="w-4 h-4"></i>
+          </button>
+          <button onclick="removeItem(${i.id})" class="text-slate-300 hover:text-red-500 active:scale-90 transition p-1">
+            <i data-lucide="x" class="w-4 h-4"></i>
+          </button>
+        </div>`;}).join("")}</div>`;
+    c.appendChild(card);
+  });
+
+  // totals + comparison
+  const total = cartTotal();
+  document.getElementById("current-total").textContent = eur(total);
+  document.getElementById("complete-total").textContent = eur(total);
+  document.getElementById("complete-btn").disabled = cart.length === 0;
+
+  const last = trips.length ? trips[trips.length-1].total : null;
+  const lastEl = document.getElementById("last-total");
+  const row = document.getElementById("compare-row");
+  if(last === null){
+    lastEl.textContent = "—"; row.classList.add("hidden");
+  } else {
+    lastEl.textContent = eur(last);
+    lastEl.classList.remove("text-slate-300"); lastEl.classList.add("text-slate-700");
+    if(total > 0){
+      const diff = total - last;
+      const higher = diff > 0.005, lower = diff < -0.005;
+      row.classList.remove("hidden"); row.classList.add("flex");
+      row.className = "mt-3 flex items-center gap-1.5 text-sm font-semibold rounded-lg px-3 py-2 " +
+        (higher ? "bg-red-50 text-red-600" : lower ? "bg-green-50 text-green-600" : "bg-slate-50 text-slate-500");
+      document.getElementById("compare-icon").setAttribute("data-lucide",
+        higher ? "trending-up" : lower ? "trending-down" : "minus");
+      document.getElementById("compare-text").textContent =
+        higher ? `${eur(diff)} more than last trip`
+        : lower ? `${eur(Math.abs(diff))} less than last trip`
+        : "Same as last trip";
+    } else { row.classList.add("hidden"); row.classList.remove("flex"); }
+  }
+  icons();
+}
+
+// ---------- Complete trip ----------
+function completeTrip(){
+  if(cart.length === 0) return;
+  const total = cartTotal();
+  const now = new Date();
+  trips.push({
+    date: now.toISOString(),
+    total: total,
+    items: cart.length,
+    listName: activeList().name,
+    detail: cart.map(i => ({name:i.name, cat:i.cat, qty:i.qty, price:i.price}))
+  });
+  save(LS_TRIPS, trips);
+  // Clear the active list's items in place (the named list itself remains).
+  const al = activeList();
+  al.items.length = 0;
+  cart = al.items;
+  saveLists();
+  renderCart();
+  switchTab("stats");
+}
+
+// ---------- Analytics ----------
+function fmtDate(iso){
+  const d = new Date(iso);
+  return String(d.getDate()).padStart(2,"0") + "/" + String(d.getMonth()+1).padStart(2,"0");
+}
+function renderStats(){
+  const hasData = trips.length > 0;
+  document.getElementById("chart-empty").classList.toggle("hidden", hasData);
+  document.getElementById("chart-wrap").classList.toggle("hidden", !hasData);
+
+  // summary
+  const sum = trips.reduce((s,t)=> s + t.total, 0);
+  const avg = hasData ? sum / trips.length : 0;
+  document.getElementById("stat-trips").textContent = trips.length;
+  document.getElementById("stat-avg").textContent = hasData ? eur(avg) : "—";
+  document.getElementById("stat-sum").textContent = hasData ? eur(sum) : "—";
+
+  // history list (newest first)
+  const hist = document.getElementById("history-list");
+  hist.innerHTML = trips.slice().reverse().map((t,idx) => {
+    const realIdx = trips.length - 1 - idx;
+    const d = new Date(t.date);
+    const dateStr = d.toLocaleDateString("el-GR",{day:"2-digit",month:"short",year:"numeric"});
+    const timeStr = d.toLocaleTimeString("el-GR",{hour:"2-digit",minute:"2-digit"});
+    return `<div class="bg-white rounded-xl card-shadow p-3 flex items-center gap-3">
+      <div class="w-10 h-10 rounded-lg bg-[#F4F6F9] flex items-center justify-center shrink-0">
+        <i data-lucide="receipt" class="w-5 h-5 text-[#005A9C]"></i>
+      </div>
+      <div class="min-w-0 flex-1">
+        <p class="text-sm font-semibold text-slate-800">${dateStr} <span class="text-slate-400 font-normal">· ${timeStr}</span></p>
+        <p class="text-xs text-slate-400">${t.items} item${t.items!==1?"s":""}</p>
+      </div>
+      <span class="text-base font-bold text-[#005A9C]">${eur(t.total)}</span>
+      <button onclick="deleteTrip(${realIdx})" class="text-slate-300 hover:text-red-500 active:scale-90 transition shrink-0">
+        <i data-lucide="trash-2" class="w-4 h-4"></i>
+      </button>
+    </div>`;
+  }).join("");
+
+  if(hasData) drawChart();
+  icons();
+}
+
+function deleteTrip(idx){
+  trips.splice(idx,1);
+  save(LS_TRIPS, trips);
+  renderStats();
+  renderCart(); // last-trip comparison may change
+}
+
+function drawChart(){
+  if(!window.Chart){ return; }  // Chart.js CDN unavailable; skip gracefully
+  const ctx = document.getElementById("spendChart").getContext("2d");
+  const labels = trips.map(t => fmtDate(t.date));
+  const data = trips.map(t => t.total);
+
+  // light blue gradient under the line
+  const grad = ctx.createLinearGradient(0,0,0,260);
+  grad.addColorStop(0, "rgba(0,90,156,0.22)");
+  grad.addColorStop(1, "rgba(0,90,156,0.00)");
+
+  if(chart) chart.destroy();
+  chart = new Chart(ctx, {
+    type: "line",
+    data: { labels, datasets: [{
+      label: "Spent",
+      data,
+      borderColor: "#005A9C",
+      borderWidth: 3,
+      backgroundColor: grad,
+      fill: true,
+      tension: 0.38,
+      pointBackgroundColor: "#fff",
+      pointBorderColor: "#005A9C",
+      pointBorderWidth: 2,
+      pointRadius: 4,
+      pointHoverRadius: 7,
+      pointHoverBackgroundColor: "#005A9C",
+    }]},
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { intersect: false, mode: "index" },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: "#004576", padding: 10, cornerRadius: 8,
+          titleFont:{weight:"600"}, displayColors:false,
+          callbacks: { label: c => "Total: " + eur(c.parsed.y) }
+        }
+      },
+      scales: {
+        x: { grid:{display:false}, ticks:{color:"#6b7e90", font:{size:11}} },
+        y: { beginAtZero:true, grid:{color:"#eef2f6"},
+             ticks:{color:"#6b7e90", font:{size:11}, callback:v=> v+" €"} }
+      }
+    }
+  });
+}
+
+function escapeHtml(s){ return s.replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c])); }
+
+// Fail-safe icon rendering: if the Lucide CDN didn't load (e.g. weak signal
+// in a store), the app must still work. Never let a missing icon throw.
+function icons(){ try { if(window.lucide) icons(); } catch(e){} }
+
+// ============ GENERATE PHONE APP (planner only) ============
+async function generatePhoneApp(){
+  if(!Prices.server){ alert("Connect to your server first (Data button)."); return; }
+  const btn = document.getElementById("generate-btn");
+  const orig = btn.innerHTML;
+  btn.innerHTML = '<i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Building…'; icons();
+  try {
+    const al = activeList();
+    const resp = await fetch(Prices.server + "/api/generate", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({
+        list_id: al.serverId || null,
+        list: { name: al.name, items: al.items }
+      })
+    });
+    if(!resp.ok) throw new Error("server " + resp.status);
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "shopping_" + (al.name||"list").replace(/[^a-z0-9]+/gi,"_").toLowerCase() + ".html";
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+    btn.innerHTML = '<i data-lucide="check" class="w-4 h-4"></i> Downloaded! Transfer to your phone'; icons();
+    setTimeout(()=>{ btn.innerHTML = orig; icons(); }, 3000);
+  } catch(e){
+    alert("Could not generate: " + e.message);
+    btn.innerHTML = orig; icons();
+  }
+}
+
+// ============ LIST MANAGEMENT ============
+function renderListPicker(){
+  const sel = document.getElementById("list-picker");
+  sel.innerHTML = listsData.lists.map(l => {
+    const n = l.items.length;
+    return `<option value="${l.id}" ${l.id===listsData.activeId?"selected":""}>${escapeHtml(l.name)}${n?` (${n})`:""}</option>`;
+  }).join("");
+}
+function switchList(id){
+  listsData.activeId = Number(id);
+  cart = activeList().items;
+  saveLists();
+  renderCart();
+}
+function newList(){
+  const name = prompt("Name your new list:", "List " + (listsData.lists.length+1));
+  if(name === null) return;
+  const l = { id: newId(), name: name.trim() || "Untitled", items: [] };
+  listsData.lists.push(l);
+  listsData.activeId = l.id;
+  cart = l.items;
+  saveLists();
+  if(serverMode()){
+    srv("POST", "/api/lists", {name: l.name})
+      .then(r => r && r.ok ? r.json() : null)
+      .then(res => { if(res && res.id){ l.serverId = res.id; saveLists(); } })
+      .catch(()=>{});
+  }
+  renderCart();
+}
+function renameList(){
+  const l = activeList();
+  const name = prompt("Rename list:", l.name);
+  if(name === null) return;
+  l.name = name.trim() || l.name;
+  saveLists();
+  if(serverMode() && l.serverId){
+    srv("PATCH", "/api/lists/" + l.serverId, {name: l.name}).catch(()=>{});
+  }
+  renderCart();
+}
+function deleteList(){
+  if(listsData.lists.length === 1){
+    if(!confirm("This is your only list. Clear all its items?")) return;
+    const al = activeList();
+    if(serverMode() && al.serverId){
+      al.items.forEach(it => { if(it.serverId) srv("DELETE","/api/list-items/"+it.serverId).catch(()=>{}); });
+    }
+    al.items.length = 0;
+    cart = al.items;
+    saveLists(); renderCart(); return;
+  }
+  if(!confirm(`Delete the list "${activeList().name}"? This can't be undone.`)) return;
+  const al = activeList();
+  if(serverMode() && al.serverId){
+    srv("DELETE", "/api/lists/" + al.serverId).catch(()=>{});
+  }
+  listsData.lists = listsData.lists.filter(l => l.id !== listsData.activeId);
+  listsData.activeId = listsData.lists[0].id;
+  cart = activeList().items;
+  saveLists();
+  renderCart();
+}
+
+// ============ ITEM EDITING ============
+let editingId = null;
+function editItem(id){
+  const it = cart.find(i => i.id === id); if(!it) return;
+  editingId = id;
+  document.getElementById("edit-name").value = it.name;
+  document.getElementById("edit-cat").value = it.cat;
+  document.getElementById("edit-qty").value = it.qty;
+  document.getElementById("edit-price").value = it.price;
+  document.getElementById("edit-modal").classList.remove("hidden");
+  document.getElementById("edit-modal").classList.add("flex");
+  loadItemTrend(it);
+  icons();
+}
+
+let itemTrendChart = null;
+async function loadItemTrend(it){
+  const wrap = document.getElementById("item-trend-wrap");
+  const empty = document.getElementById("item-trend-empty");
+  const legend = document.getElementById("item-trend-legend");
+  wrap.classList.add("hidden"); empty.classList.remove("hidden");
+  legend.innerHTML = "";
+
+  // Build "my trips" series for this item name (what I actually paid)
+  const myPts = [];
+  trips.forEach(t => (t.detail||[]).forEach(d => {
+    if(normalizeGr(d.name) === normalizeGr(it.name))
+      myPts.push({ x: t.date, y: d.price });
+  }));
+
+  // Market history from the server (needs live connection + a product id)
+  let market = null;
+  if(it.productId != null && Prices.live){
+    try {
+      const r = await fetch(Prices.server + "/api/product/" + it.productId + "/history");
+      if(r.ok) market = await r.json();
+    } catch {}
+  }
+
+  if(!myPts.length && !market){ empty.textContent =
+    Prices.live ? "No history yet for this item." :
+    "Connect to your server (Data) to see market price history."; return; }
+
+  empty.classList.add("hidden"); wrap.classList.remove("hidden");
+  if(!window.Chart){ return; }
+
+  const datasets = [];
+  if(myPts.length){
+    datasets.push({ label:"You paid", data: myPts.map(p=>({x:p.x,y:p.y})),
+      borderColor:"#005A9C", backgroundColor:"#005A9C", borderWidth:3,
+      pointRadius:4, tension:.3 });
+  }
+  if(market){
+    const palette = ["#e84393","#00b894","#fdcb6e","#6c5ce7","#e17055","#0984e3"];
+    Object.entries(market).forEach(([ret, pts], i)=>{
+      datasets.push({ label:rname(ret),
+        data: pts.map(p=>({x:p.observed_at,y:p.price})),
+        borderColor:palette[i%palette.length], backgroundColor:"transparent",
+        borderWidth:1.5, pointRadius:0, tension:.3, borderDash:[4,3] });
+    });
+  }
+
+  const ctx = document.getElementById("itemTrendChart").getContext("2d");
+  if(itemTrendChart) itemTrendChart.destroy();
+  itemTrendChart = new Chart(ctx, {
+    type:"line",
+    data:{ datasets },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      parsing:false,
+      plugins:{ legend:{display:false},
+        tooltip:{ callbacks:{ label:c=>c.dataset.label+": "+eur(c.parsed.y) } } },
+      scales:{
+        x:{ type:"time", time:{unit:"day"}, adapters:{}, grid:{display:false},
+            ticks:{color:"#94a3b8",font:{size:9},maxRotation:0,
+                   callback:function(v){ const d=new Date(v);
+                     return String(d.getDate()).padStart(2,"0")+"/"+String(d.getMonth()+1).padStart(2,"0"); }} },
+        y:{ grid:{color:"#eef2f6"}, ticks:{color:"#94a3b8",font:{size:9},callback:v=>v+"€"} }
+      }
+    }
+  });
+  legend.innerHTML = datasets.map(d=>
+    `<span style="display:inline-flex;align-items:center;gap:4px">
+      <i style="width:8px;height:8px;border-radius:2px;background:${d.borderColor};display:inline-block"></i>${d.label}</span>`).join("");
+}
+function closeEdit(){
+  editingId = null;
+  document.getElementById("edit-modal").classList.add("hidden");
+  document.getElementById("edit-modal").classList.remove("flex");
+}
+function saveEdit(){
+  const it = cart.find(i => i.id === editingId); if(!it) return;
+  const name = document.getElementById("edit-name").value.trim();
+  if(!name){ document.getElementById("edit-name").focus(); return; }
+  it.name = name;
+  it.cat = document.getElementById("edit-cat").value;
+  it.qty = Math.max(1, parseInt(document.getElementById("edit-qty").value) || 1);
+  it.price = parseFloat(document.getElementById("edit-price").value) || 0;
+  saveLists();
+  closeEdit();
+  renderCart();
+}
+
+// ============ BY STORE (per-retailer breakdown) ============
+let strategy = "cheap";
+const RETAILER_LABELS = {
+  mymarket:"My Market", ab:"AB Βασιλόπουλος", ab_vasilopoulos:"AB Βασιλόπουλος",
+  sklavenitis:"Σκλαβενίτης", masoutis:"Μασούτης", lidl:"Lidl", galaxias:"Γαλαξίας",
+  synka:"Synka", kritikos:"Κρητικός", market_in:"Market In", halkiadakis:"Χαλκιαδάκης",
+  bazaar:"Bazaar"
+};
+const rname = r => RETAILER_LABELS[r] || r;
+
+function setStrategy(s){
+  strategy = s;
+  document.getElementById("strat-cheap").className =
+    "flex-1 py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-1.5 " +
+    (s==="cheap" ? "bg-[#005A9C] text-white" : "text-slate-500");
+  document.getElementById("strat-few").className =
+    "flex-1 py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-1.5 " +
+    (s==="few" ? "bg-[#005A9C] text-white" : "text-slate-500");
+  renderStores();
+}
+
+// Assign each item to a retailer. Returns {assignments:{retailer:[items]}, total, stores}
+function planCheapest(items){
+  const assign = {};
+  let total = 0;
+  items.forEach(it => {
+    if(it.spread && Object.keys(it.spread).length){
+      const best = Object.entries(it.spread).sort((a,b)=>a[1]-b[1])[0];
+      (assign[best[0]] = assign[best[0]]||[]).push({...it, atPrice:best[1], atRetailer:best[0]});
+      total += best[1]*it.qty;
+    } else {
+      (assign["(manual)"] = assign["(manual)"]||[]).push({...it, atPrice:it.price, atRetailer:null});
+      total += it.price*it.qty;
+    }
+  });
+  return {assign, total, stores:Object.keys(assign).length};
+}
+
+// Greedy "fewest stores": repeatedly pick the retailer covering the most
+// still-unassigned items, until all are placed.
+function planFewest(items){
+  const priced = items.filter(it => it.spread && Object.keys(it.spread).length);
+  const manual = items.filter(it => !(it.spread && Object.keys(it.spread).length));
+  const remaining = new Set(priced.map(i=>i.id));
+  const assign = {};
+  let total = 0;
+
+  while(remaining.size){
+    // count coverage per retailer among remaining
+    const cover = {};
+    priced.forEach(it => {
+      if(!remaining.has(it.id)) return;
+      Object.keys(it.spread).forEach(r => cover[r]=(cover[r]||0)+1);
+    });
+    // pick retailer with max coverage (tie-break: cheapest sum for those items)
+    let bestR=null, bestN=-1, bestSum=Infinity;
+    Object.keys(cover).forEach(r => {
+      const items_r = priced.filter(it=>remaining.has(it.id) && it.spread[r]!=null);
+      const sum = items_r.reduce((s,it)=>s+it.spread[r]*it.qty,0);
+      if(cover[r]>bestN || (cover[r]===bestN && sum<bestSum)){ bestR=r; bestN=cover[r]; bestSum=sum; }
+    });
+    if(!bestR) break;
+    priced.forEach(it => {
+      if(remaining.has(it.id) && it.spread[bestR]!=null){
+        (assign[bestR]=assign[bestR]||[]).push({...it, atPrice:it.spread[bestR], atRetailer:bestR});
+        total += it.spread[bestR]*it.qty;
+        remaining.delete(it.id);
+      }
+    });
+  }
+  manual.forEach(it => {
+    (assign["(manual)"]=assign["(manual)"]||[]).push({...it, atPrice:it.price, atRetailer:null});
+    total += it.price*it.qty;
+  });
+  return {assign, total, stores:Object.keys(assign).filter(k=>k!=="(manual)").length};
+}
+
+function renderStores(){
+  const items = cart;
+  const hasPriced = items.some(it => it.spread && Object.keys(it.spread).length);
+  document.getElementById("stores-empty").classList.toggle("hidden", items.length>0 && hasPriced);
+  const container = document.getElementById("stores-container");
+  const summary = document.getElementById("strat-summary");
+  if(!items.length || !hasPriced){ container.innerHTML=""; summary.innerHTML=""; return; }
+
+  const cheap = planCheapest(items);
+  const few = planFewest(items);
+  const plan = strategy==="cheap" ? cheap : few;
+
+  // Summary: cost + stores for both, highlight the active one
+  const extra = few.total - cheap.total;
+  summary.innerHTML = `
+    <div class="bg-white rounded-xl card-shadow p-3 ${strategy==='cheap'?'ring-2 ring-[#005A9C]':''}">
+      <p class="text-[10px] uppercase tracking-wide text-slate-400 font-semibold" data-i18n="cheapest">Cheapest</p>
+      <p class="text-lg font-extrabold text-[#005A9C]">${eur(cheap.total)}</p>
+      <p class="text-[11px] text-slate-400">${cheap.stores} store${cheap.stores!==1?"s":""}</p>
+    </div>
+    <div class="bg-white rounded-xl card-shadow p-3 ${strategy==='few'?'ring-2 ring-[#005A9C]':''}">
+      <p class="text-[10px] uppercase tracking-wide text-slate-400 font-semibold" data-i18n="fewest_stops">Fewest stops</p>
+      <p class="text-lg font-extrabold text-[#005A9C]">${eur(few.total)}</p>
+      <p class="text-[11px] text-slate-400">${few.stores} store${few.stores!==1?"s":""}${extra>0.005?` · +${eur(extra)}`:" · same price"}</p>
+    </div>`;
+
+  // Sort stores by number of items desc
+  const entries = Object.entries(plan.assign).sort((a,b)=>b[1].length-a[1].length);
+  container.innerHTML = entries.map(([ret, its]) => {
+    const sub = its.reduce((s,it)=>s+it.atPrice*it.qty,0);
+    const isManual = ret==="(manual)";
+    return `
+    <div class="bg-white rounded-2xl card-shadow mb-3 overflow-hidden">
+      <div class="flex items-center gap-2 px-4 py-3 ${isManual?'bg-slate-50':'bg-[#005A9C] text-white'}">
+        <i data-lucide="${isManual?'edit-3':'store'}" class="w-4 h-4 ${isManual?'text-slate-400':''}"></i>
+        <span class="text-sm font-bold ${isManual?'text-slate-600':''}">${isManual?'Manual price (no data)':rname(ret)}</span>
+        <span class="ml-auto text-xs ${isManual?'text-slate-400':'text-blue-100'}">${its.length} item${its.length!==1?"s":""}</span>
+        <span class="text-sm font-bold ${isManual?'text-slate-700':''}">${eur(sub)}</span>
+      </div>
+      <div>${its.map(it=>`
+        <div class="flex items-center gap-3 px-4 py-2.5 border-b border-slate-50 last:border-0">
+          <div class="min-w-0 flex-1">
+            <p class="text-sm font-medium text-slate-800 truncate">${escapeHtml(it.name)}</p>
+            <p class="text-xs text-slate-400">${it.qty} × ${eur(it.atPrice)}${it.atPrice<it.price-0.005?` · was ${eur(it.price)}`:""}</p>
+          </div>
+          <span class="text-sm font-semibold text-slate-700">${eur(it.atPrice*it.qty)}</span>
+        </div>`).join("")}</div>
+    </div>`;
+  }).join("");
+  icons();
+}
+
+// ============ PRICE CHANGES (up/down movers) ============
+function changeRow(m, dir){
+  const up = m.change > 0;
+  const color = up ? "text-red-600" : "text-green-600";
+  const bg = up ? "bg-red-50" : "bg-green-50";
+  const icon = up ? "trending-up" : "trending-down";
+  const sign = up ? "+" : "";
+  // encode the mover so we can add it to a list
+  const payload = encodeURIComponent(JSON.stringify({
+    name:m.name, cat:mapCategory(m.category||""), price:m.new,
+    productId:m.product_id, spread: m._spread || null
+  }));
+  return `
+    <div class="flex items-center gap-2.5 px-3 py-2.5 border-b border-slate-50 last:border-0">
+      <div class="w-8 h-8 rounded-lg ${bg} flex items-center justify-center shrink-0">
+        <i data-lucide="${icon}" class="w-4 h-4 ${color}"></i>
+      </div>
+      <div class="min-w-0 flex-1">
+        <p class="text-sm font-medium text-slate-800 truncate">${escapeHtml(m.name)}</p>
+        <p class="text-[11px] text-slate-400">${rname(m.retailer)} · ${eur(m.old)} → ${eur(m.new)}</p>
+      </div>
+      <div class="text-right shrink-0">
+        <p class="text-sm font-bold ${color}">${sign}${m.pct}%</p>
+        <p class="text-[11px] ${color}">${sign}${eur(m.change)}</p>
+      </div>
+      <button onclick="addMoverToList('${payload}')" title="Add to a list"
+        class="shrink-0 w-7 h-7 rounded-lg bg-[#005A9C] text-white flex items-center justify-center active:scale-90 transition">
+        <i data-lucide="plus" class="w-4 h-4"></i>
+      </button>
+    </div>`;
+}
+
+// Add a mover to a list the user picks.
+function addMoverToList(payload){
+  let m;
+  try { m = JSON.parse(decodeURIComponent(payload)); } catch { return; }
+  pendingMover = m;
+  // Build the picker options
+  const opts = listsData.lists.map(l =>
+    `<button onclick="confirmAddMover(${l.id})" class="w-full text-left px-4 py-3 hover:bg-[#F4F6F9] border-b border-slate-50 last:border-0 flex items-center gap-2">
+       <i data-lucide="bookmark" class="w-4 h-4 text-[#005A9C]"></i>
+       <span class="text-sm font-medium text-slate-800">${escapeHtml(l.name)}</span>
+       <span class="ml-auto text-xs text-slate-400">${l.items.length} items</span>
+     </button>`).join("");
+  document.getElementById("listpick-options").innerHTML = opts +
+    `<button onclick="confirmAddMover('new')" class="w-full text-left px-4 py-3 hover:bg-[#F4F6F9] flex items-center gap-2 text-[#005A9C] font-semibold">
+       <i data-lucide="plus-square" class="w-4 h-4"></i> New list…</button>`;
+  document.getElementById("listpick-title").textContent = "Add “" + (m.name.length>28?m.name.slice(0,28)+"…":m.name) + "” to:";
+  document.getElementById("listpick").classList.remove("hidden");
+  document.getElementById("listpick").classList.add("flex");
+  icons();
+}
+let pendingMover = null;
+function confirmAddMover(listId){
+  if(!pendingMover) return;
+  let target;
+  if(listId === "new"){
+    const name = prompt("Name the new list:", "Deals");
+    if(name === null){ return; }
+    target = { id: Date.now()+Math.floor(Math.random()*1000), name: name.trim()||"Deals", items: [] };
+    listsData.lists.push(target);
+  } else {
+    target = listsData.lists.find(l => l.id === Number(listId));
+  }
+  if(!target) return;
+  // Enrich with cross-chain prices: from baked catalog (offline) if present.
+  let spread = pendingMover.spread;
+  let price = pendingMover.price;
+  if(!spread && Prices.baked && pendingMover.productId != null){
+    const cat = Prices.baked.find(p => p.id === pendingMover.productId);
+    if(cat){ spread = cat.prices; if(cat.min!=null) price = cat.min; }
+  }
+  target.items.push({
+    id: Date.now()+Math.random(),
+    name: pendingMover.name, cat: pendingMover.cat || "Other",
+    qty: 1, price: price || 0,
+    spread: spread || null, productId: pendingMover.productId || null
+  });
+  saveLists();
+  closeListPick();
+  pendingMover = null;
+  if(activeList().id === target.id){ cart = activeList().items; }
+  renderCart();
+}
+function closeListPick(){
+  document.getElementById("listpick").classList.add("hidden");
+  document.getElementById("listpick").classList.remove("flex");
+}
+
+function renderChangeSection(containerId, up, down, emptyMsg){
+  const el = document.getElementById(containerId);
+  if((!up || !up.length) && (!down || !down.length)){
+    el.innerHTML = `<div class="bg-white rounded-2xl card-shadow p-4 text-center text-xs text-slate-400">${emptyMsg}</div>`;
+    return;
+  }
+  let html = "";
+  if(down && down.length){
+    html += `<div class="bg-white rounded-2xl card-shadow mb-3 overflow-hidden">
+      <div class="px-3 py-2 bg-green-50 text-green-700 text-xs font-bold flex items-center gap-1.5">
+        <i data-lucide="arrow-down" class="w-3.5 h-3.5"></i> Biggest drops</div>
+      ${down.map(m=>changeRow(m,"down")).join("")}</div>`;
+  }
+  if(up && up.length){
+    html += `<div class="bg-white rounded-2xl card-shadow overflow-hidden">
+      <div class="px-3 py-2 bg-red-50 text-red-700 text-xs font-bold flex items-center gap-1.5">
+        <i data-lucide="arrow-up" class="w-3.5 h-3.5"></i> Biggest increases</div>
+      ${up.map(m=>changeRow(m,"up")).join("")}</div>`;
+  }
+  el.innerHTML = html;
+}
+
+async function renderChanges(){
+  const days = document.getElementById("changes-window").value;
+  const scope = document.getElementById("changes-scope");
+  const empty = document.getElementById("changes-empty");
+  empty.classList.add("hidden");
+
+  // Determine my-list product ids (those picked from data, with productId)
+  const myIds = [...new Set(
+    listsData.lists.flatMap(l => l.items).map(i => i.productId).filter(x => x != null)
+  )];
+
+  // BAKED mode (phone, offline): use the frozen changes from generation time.
+  if(BAKED && BAKED.changes){
+    scope.textContent = "snapshot from " + new Date(BAKED.generated_at).toLocaleDateString("el-GR");
+    const ch = BAKED.changes;
+    // market-wide
+    renderChangeSection("changes-market", ch.up, ch.down, "No market changes recorded.");
+    // my-list subset (filter the baked market movers to my product ids)
+    const mineUp = (ch.up||[]).filter(m => myIds.includes(m.product_id));
+    const mineDown = (ch.down||[]).filter(m => myIds.includes(m.product_id));
+    if(myIds.length === 0){
+      document.getElementById("changes-mylist").innerHTML =
+        `<div class="bg-white rounded-2xl card-shadow p-4 text-center text-xs text-slate-400">Add items from search to track their price changes.</div>`;
+    } else {
+      renderChangeSection("changes-mylist", mineUp, mineDown,
+        "None of your list items moved in this window.");
+    }
+    // window selector is informational only in baked mode (data fixed at 30d)
+    return;
+  }
+
+  // LIVE mode (planner): fetch from the server.
+  if(!Prices.live){
+    document.getElementById("changes-mylist").innerHTML = "";
+    document.getElementById("changes-market").innerHTML = "";
+    empty.classList.remove("hidden");
+    document.getElementById("changes-empty-msg").textContent =
+      "Connect to your server (Data) to see price changes — they need price history.";
+    return;
+  }
+  scope.textContent = "live";
+  // market-wide
+  try {
+    const r = await fetch(Prices.server + "/api/changes?days=" + days + "&limit=20");
+    const ch = await r.json();
+    renderChangeSection("changes-market", ch.up, ch.down, "No market changes in this window.");
+  } catch {
+    document.getElementById("changes-market").innerHTML = "";
+  }
+  // my lists
+  if(myIds.length === 0){
+    document.getElementById("changes-mylist").innerHTML =
+      `<div class="bg-white rounded-2xl card-shadow p-4 text-center text-xs text-slate-400">Add items from search to track their price changes.</div>`;
+  } else {
+    try {
+      const r = await fetch(Prices.server + "/api/changes?days=" + days + "&limit=20&products=" + myIds.join(","));
+      const ch = await r.json();
+      renderChangeSection("changes-mylist", ch.up, ch.down, "None of your list items moved in this window.");
+    } catch {
+      document.getElementById("changes-mylist").innerHTML = "";
+    }
+  }
+  icons();
+}
+
+// init
+document.documentElement.lang = LANG;
+const langSel = document.getElementById("lang-select");
+if(langSel) langSel.value = LANG;
+applyI18n();
+renderCart();
+icons();
+// Mode-specific UI: baked file = shopper (offline), else = planner (can generate).
+if(BAKED){
+  // Shopper mode: hide the data-source settings button (catalog is built in).
+  const dataBtn = document.querySelector('[onclick="toggleSettings()"]');
+  if(dataBtn) dataBtn.style.display = "none";
+} 
+Prices.check().then(async ()=>{
+  // Show the generate button only when connected to a live server (planner).
+  const gen = document.getElementById("generate-btn");
+  if(gen) gen.classList.toggle("hidden", !(Prices.live && !BAKED));
+
+  if(Prices.live && !BAKED){
+    // Planner mode at home: use the SAME lists as price-monitor (the database).
+    const ok = await loadServerLists();
+    if(ok) renderCart();
+  } else if(BAKED){
+    // Offline file: if a server happens to be reachable, push our edits back.
+    await syncBakedListBack();
+  }
+});
+updateSourceBar();
+// close the suggestion dropdown when tapping elsewhere
+document.addEventListener("click", e => {
+  if(!e.target.closest("#in-name") && !e.target.closest("#suggest"))
+    document.getElementById("suggest").classList.add("hidden");
+});
+</script>
+</body>
+</html>

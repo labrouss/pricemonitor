@@ -1,0 +1,89 @@
+# Reads secrets from a `.env` file in this directory (see .env.example).
+# docker compose automatically loads `.env` for ${VAR} substitution below.
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-price}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-pricemonitor}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      # Bind to LOCALHOST ONLY (127.0.0.1). The DB is reachable from the host
+      # (so you can run scrapers locally) but NOT from the internet. Previously
+      # this was "5432:5432" which binds 0.0.0.0 — exposed to the world. If you
+      # don't need host access at all, delete this whole ports: block; the web
+      # and worker containers reach the DB over the internal network regardless.
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-price} -d ${POSTGRES_DB:-pricemonitor}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  web:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_BACKEND: postgres
+      DATABASE_URL: postgresql://${POSTGRES_USER:-price}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-pricemonitor}
+      # Auth + session (all optional; unset = single-user/local mode)
+      SECRET_KEY: ${SECRET_KEY:-}
+      APP_BASE_URL: ${APP_BASE_URL:-}
+      COOKIE_SECURE: ${COOKIE_SECURE:-1}
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      OIDC_SCOPES: ${OIDC_SCOPES:-openid email profile}
+      OIDC_ALLOWED_EMAILS: ${OIDC_ALLOWED_EMAILS:-}
+      OIDC_ALLOWED_DOMAIN: ${OIDC_ALLOWED_DOMAIN:-}
+    volumes:
+      - .:/app          # live-mount code: edits on the host apply without rebuild
+    # Reachable at http://<dockerhost-ip>:5000 from your LAN. This binds 0.0.0.0,
+    # so it's reachable from any network that can route to this host. That's fine
+    # on a trusted LAN; if this host is also internet-facing, prefer the Caddy
+    # 'public' profile + HTTPS and change this back to "127.0.0.1:5000:5000" so
+    # the only public entry point is Caddy on 443.
+    ports:
+      - "5000:5000"
+
+  worker:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_BACKEND: postgres
+      DATABASE_URL: postgresql://${POSTGRES_USER:-price}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-pricemonitor}
+      TZ: ${TZ:-Europe/Athens}
+    volumes:
+      - .:/app
+    command: ["bash", "/app/worker-entrypoint.sh"]
+
+  # Reverse proxy: automatic HTTPS via Let's Encrypt, forwards to the web app.
+  # Only enabled when you run with the 'public' profile:
+  #     docker compose --profile public up -d
+  # Requires APP_DOMAIN in .env (e.g. prices.example.com) pointing at this host.
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["public"]
+    depends_on:
+      - web
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?set APP_DOMAIN in .env for public mode}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

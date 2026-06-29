@@ -1,0 +1,55 @@
+# Scheduled price collection.
+#
+# Times are the container's local time. With TZ=Europe/Athens set in
+# docker-compose, these are Athens-local. Each line runs a scraper against the
+# SAME Postgres the web app uses (the worker container's environment provides
+# DB_BACKEND and DATABASE_URL via /etc/environment, written at startup).
+#
+# IMPORTANT: each collection takes ~2 hours, so jobs are spaced 2h apart and
+# wrapped in `flock` with a PER-RETAILER lock. We do NOT pass -n, so if a
+# previous run of the SAME retailer is somehow still going, the new invocation
+# WAITS (up to -w 7200s = 2h) instead of starting a second copy. Different
+# retailers use different lock files, so a slight overrun overlap between two
+# different retailers is allowed — the Postgres backend handles concurrent
+# writers. To forbid ALL overlap, point every job at one shared lock file
+# (e.g. /tmp/scrape.lock) instead of the per-retailer ones below.
+#
+# min hour dom mon dow   command
+# ---- posokanei: the primary source, nightly full refresh -------------------
+0 22 * * *  flock -w 7200 /tmp/scrape-posokanei.lock   sh -c 'cd /app && python3 main.py scrape --retailer posokanei  --limit 50000' >> /var/log/cron/posokanei.log 2>&1
+
+# ---- nightly Postgres backup BEFORE the scrape cycle (21:30, before posokanei
+# at 22:00) so there's always a clean pre-scrape snapshot to roll back to. Keeps
+# the last 14 (rotation handled by backup.sh). ------------------------------
+30 21 * * * flock -w 600 /tmp/backup.lock sh -c 'cd /app && KEEP=14 python3 main.py backup --tag nightly' >> /var/log/cron/backup.log 2>&1
+
+# ---- per-retailer scrapers, spaced ~2h apart (each run takes ~2h) -----------
+0 0 * * *   flock -w 7200 /tmp/scrape-sklavenitis.lock sh -c 'cd /app && python3 main.py scrape --retailer sklavenitis --limit 20000' >> /var/log/cron/sklavenitis.log 2>&1
+# ---- AB (ab.gr) DISABLED 2026-06-28 ----------------------------------------
+# AB sits behind Akamai and has IP-blocked this server (HTTP 403 "Access Denied",
+# ref errors.edgesuite.net) — the block hits a normal browser too, so it's an
+# IP-level block, almost certainly from this nightly scrape tripping Akamai's
+# rate heuristics. Running it keeps signalling abuse and may prolong the block,
+# so it is disabled to let the IP cool off. AB PRICES STILL ARRIVE via posokanei
+# (the official portal carries AB as a chain). Do NOT re-enable by evading the
+# block; if re-enabling later, crawl far gentler (1 worker, multi-sec delay,
+# tiny batch) so the threshold isn't re-tripped.
+# 0 2 * * *   flock -w 7200 /tmp/scrape-ab.lock          sh -c 'cd /app && python3 main.py scrape --retailer ab          --limit 5000' >> /var/log/cron/ab.log 2>&1
+0 4 * * *   flock -w 7200 /tmp/scrape-mymarket.lock    sh -c 'cd /app && python3 main.py scrape --retailer mymarket    --limit 20000' >> /var/log/cron/mymarket.log 2>&1
+0 6 * * *   flock -w 7200 /tmp/scrape-bazaar.lock      sh -c 'cd /app && python3 main.py scrape --retailer bazaar      --limit 20000' >> /var/log/cron/bazaar.log 2>&1
+0 8 * * *   flock -w 7200 /tmp/scrape-lidl.lock        sh -c 'cd /app && python3 main.py scrape --retailer lidl        --limit 20000' >> /var/log/cron/lidl.log 2>&1
+
+# ---- duplicate scan: runs AFTER all scrapers finish (lidl starts 08:00,
+# ~2h run -> done ~10:00; we start at 11:00 for safety). --prune first re-scores
+# pending candidates and drops stale ones, then auto-merges exact matches and
+# queues fuzzy candidates for review. Shares no lock with scrapers but runs late
+# enough not to overlap. -----------------------------------------------------
+0 11 * * *  flock -w 3600 /tmp/dedup.lock sh -c 'cd /app && python3 main.py dedup --prune' >> /var/log/cron/dedup.log 2>&1
+
+# ---- publish latest-prices snapshot to GitHub (11:30, after dedup). Exports
+# SQLite+JSON+CSV then pushes to a GitHub Release. Needs GITHUB_TOKEN + GITHUB_REPO
+# in the container env (set in docker-compose, NOT committed). Skips silently if
+# the token isn't set, so it's safe to leave enabled before you configure it. --
+30 11 * * * flock -w 1800 /tmp/publish.lock sh -c 'cd /app && python3 export_snapshot.py --out /app/snapshot && [ -n "$GITHUB_TOKEN" ] && ./publish_snapshot.sh /app/snapshot || echo "snapshot exported; GITHUB_TOKEN unset, skipping publish"' >> /var/log/cron/publish.log 2>&1
+
+# Empty line required at end of a crontab:

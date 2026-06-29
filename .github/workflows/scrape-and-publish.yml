@@ -1,0 +1,87 @@
+name: scrape-and-publish
+
+# Parallel per-retailer scrape jobs (each gets its own 6h budget), then a
+# collector job merges their outputs, dedups, exports a snapshot, and publishes
+# a GitHub Release.
+#
+# NOTE ON RISK (you accepted this): scrapers run from GitHub's shared Azure IPs,
+# which retailer WAFs block more readily than a normal server. Jobs may fail with
+# 403/timeout. The collector still publishes from whatever scrapes DID succeed,
+# so a partial failure yields a partial (clearly-labelled) snapshot rather than
+# nothing. Watch the run logs; if a retailer 403s repeatedly, it's IP-blocked.
+
+on:
+  schedule:
+    - cron: "0 1 * * *"      # 01:00 UTC nightly (best-effort; GitHub may delay)
+  workflow_dispatch: {}        # allow manual runs
+
+permissions:
+  contents: write              # needed to create Releases
+
+concurrency:
+  group: scrape-and-publish
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    strategy:
+      fail-fast: false         # one retailer failing must not cancel the others
+      matrix:
+        retailer: [posokanei, sklavenitis, mymarket, bazaar, lidl]
+    runs-on: ubuntu-latest
+    timeout-minutes: 350       # just under the 6h hard cap
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        run: pip install -r requirements.txt
+      - name: Scrape ${{ matrix.retailer }}
+        env:
+          DB_BACKEND: sqlite     # ephemeral per-job DB; merged later
+        run: |
+          python3 main.py scrape --retailer ${{ matrix.retailer }} \
+            --limit 20000 --db scrape-${{ matrix.retailer }}.db
+      - name: Upload ${{ matrix.retailer }} data
+        if: always()             # upload even partial output
+        uses: actions/upload-artifact@v4
+        with:
+          name: scrape-${{ matrix.retailer }}
+          path: scrape-${{ matrix.retailer }}.db
+          if-no-files-found: warn
+          retention-days: 3
+
+  collect-and-publish:
+    needs: scrape
+    if: always()                 # run even if some scrapers failed
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        run: pip install -r requirements.txt
+      - name: Download all scrape artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Merge into one DB
+        run: |
+          ls -la artifacts || true
+          python3 merge_scrapes.py --out combined.db artifacts/scrape-*.db
+      - name: Dedup
+        env:
+          DB_BACKEND: sqlite
+        run: python3 main.py dedup --db combined.db
+      - name: Export snapshot (sqlite/json/csv)
+        env:
+          DB_BACKEND: sqlite
+        run: python3 export_snapshot.py --out snapshot --db combined.db
+      - name: Publish to Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
+        run: ./publish_snapshot.sh snapshot

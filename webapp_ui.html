@@ -1,0 +1,1092 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Price Monitor — cross-chain analysis</title>
+<style>
+  :root {
+    --bg: #0f1418;
+    --panel: #161d23;
+    --panel-2: #1c252d;
+    --line: #2a353e;
+    --ink: #e8edf0;
+    --muted: #8a99a5;
+    --dim: #5c6c70;
+    --accent: #4fd1c5;       /* teal — the cheapest marker */
+    --mid: #ffd166;          /* mid of the spread */
+    --hot: #ff6b6b;          /* expensive end of the spread */
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: var(--sans); font-size: 14px; line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); }
+
+  header {
+    border-bottom: 1px solid var(--line);
+    padding: 18px 24px; display: flex; align-items: baseline; gap: 18px;
+    position: sticky; top: 0; background: rgba(15,20,24,.92);
+    backdrop-filter: blur(8px); z-index: 5;
+  }
+  header h1 {
+    font-size: 15px; font-weight: 650; letter-spacing: .02em; margin: 0;
+  }
+  header h1 .dot { color: var(--accent); }
+  header .stats { font-family: var(--mono); font-size: 12px; color: var(--muted); display: flex; gap: 16px; }
+  header .stats b { color: var(--ink); font-weight: 600; }
+  .viewnav { display: flex; gap: 4px; margin-left: 8px; }
+  .navbtn { background: transparent; border: 1px solid var(--line); color: var(--muted);
+    padding: 5px 14px; border-radius: 7px; font-size: 13px; cursor: pointer; font-weight: 600; }
+  .navbtn.on { background: var(--accent); color: #06302c; border-color: var(--accent); }
+
+  .wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 0; height: calc(100vh - 60px); }
+  @media (max-width: 900px) { .wrap { grid-template-columns: 1fr; height: auto; } }
+
+  .col { overflow-y: auto; padding: 20px 24px; }
+  .col.left { border-right: 1px solid var(--line); }
+
+  .searchbar { position: relative; margin-bottom: 16px; }
+  .searchbar input {
+    width: 100%; background: var(--panel); border: 1px solid var(--line);
+    color: var(--ink); padding: 12px 14px; border-radius: 8px; font-size: 15px;
+    outline: none; transition: border-color .15s;
+  }
+  .searchbar input:focus { border-color: var(--accent); }
+  .filters { display: flex; gap: 8px; margin-bottom: 18px; flex-wrap: wrap; }
+  .chip {
+    font-size: 12px; padding: 5px 11px; border-radius: 999px; cursor: pointer;
+    background: var(--panel); border: 1px solid var(--line); color: var(--muted);
+    user-select: none; transition: all .12s;
+  }
+  .chip:hover { color: var(--ink); }
+  .chip.on { background: var(--accent); color: #06302c; border-color: var(--accent); font-weight: 600; }
+
+  .result {
+    display: grid; grid-template-columns: 44px 1fr auto; gap: 12px;
+    align-items: center; padding: 11px 12px; border-radius: 8px; cursor: pointer;
+    border: 1px solid transparent;
+  }
+  .result:hover { background: var(--panel); }
+  .result.sel { background: var(--panel); border-color: var(--line); }
+  .result .thumb {
+    width: 44px; height: 44px; border-radius: 6px; background: var(--panel-2);
+    object-fit: contain; border: 1px solid var(--line);
+  }
+  .result .name { font-size: 13.5px; line-height: 1.35; }
+  .result .meta { font-size: 11.5px; color: var(--dim); margin-top: 2px; font-family: var(--mono); }
+  .result .spread { text-align: right; font-family: var(--mono); white-space: nowrap; }
+  .result .spread .lo { color: var(--accent); font-weight: 600; }
+  .result .spread .gap { font-size: 11px; color: var(--muted); }
+  .result .spread .n { font-size: 10.5px; color: var(--dim); }
+  .result .addbtn { flex-shrink:0; width:30px; height:30px; border-radius:7px;
+    background:var(--accent); color:#06302c; border:none; font-size:18px;
+    cursor:pointer; opacity:0; transition:opacity .12s; }
+  .result:hover .addbtn { opacity:1; }
+  @media (hover:none){ .result .addbtn { opacity:1; } }
+
+  .muted { color: var(--muted); }
+  .empty { color: var(--dim); padding: 40px 8px; text-align: center; font-size: 13px; }
+
+  /* Detail panel */
+  .detail-head { display: flex; gap: 16px; margin-bottom: 20px; }
+  .detail-head img { width: 88px; height: 88px; border-radius: 8px; object-fit: contain;
+    background: var(--panel-2); border: 1px solid var(--line); }
+  .detail-head h2 { margin: 0 0 4px; font-size: 17px; line-height: 1.3; }
+  .detail-head .sub { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+
+  .section-label {
+    font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--dim); margin: 22px 0 10px; font-weight: 600;
+  }
+
+  /* The signature element: the cross-chain price spread bar */
+  .spread-viz { background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 18px 16px 14px; }
+  .spread-track { position: relative; height: 6px; background: var(--panel-2);
+    border-radius: 3px; margin: 30px 10px 8px; }
+  .spread-fill { position: absolute; height: 100%; border-radius: 3px;
+    background: linear-gradient(90deg, var(--accent), var(--mid) 55%, var(--hot)); }
+  .node { position: absolute; top: 50%; transform: translate(-50%,-50%); }
+  .node .pt { width: 11px; height: 11px; border-radius: 50%; background: var(--ink);
+    border: 2px solid var(--bg); cursor: pointer; }
+  .node .lbl { position: absolute; left: 50%; transform: translateX(-50%);
+    bottom: 16px; font-family: var(--mono); font-size: 10.5px; white-space: nowrap; color: var(--muted); }
+  .node .pr { position: absolute; left: 50%; transform: translateX(-50%);
+    top: 16px; font-family: var(--mono); font-size: 11px; color: var(--ink); white-space: nowrap; }
+  .node.cheap .pt { background: var(--accent); }
+  .node.dear .pt { background: var(--hot); }
+
+  table.chains { width: 100%; border-collapse: collapse; margin-top: 6px; }
+  table.chains th { text-align: left; font-size: 10.5px; letter-spacing: .06em;
+    text-transform: uppercase; color: var(--dim); font-weight: 600; padding: 6px 8px; }
+  table.chains td { padding: 9px 8px; border-top: 1px solid var(--line); font-size: 13px; }
+  table.chains tr.chrow { cursor: pointer; }
+  table.chains tr.chrow:hover { background: var(--panel); }
+  table.chains .price { font-family: var(--mono); font-weight: 600; }
+  table.chains .delta { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+  .badge-lo { color: var(--accent); font-size: 10px; font-family: var(--mono);
+    border: 1px solid var(--accent); border-radius: 4px; padding: 1px 5px; margin-left: 6px; }
+
+  #chart { width: 100%; height: 220px; margin-top: 6px; }
+  .chart-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px;
+    font-size: 11.5px; font-family: var(--mono); color: var(--muted); }
+  .chart-legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .chart-legend i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+
+  .placeholder { color: var(--dim); padding: 60px 12px; text-align: center; }
+  .placeholder .big { font-size: 15px; color: var(--muted); margin-bottom: 6px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>price<span class="dot">·</span>monitor</h1>
+  <nav class="viewnav">
+    <button id="nav-changes" class="navbtn on" onclick="showView('changes')" data-i18n="nav_dashboard">Dashboard</button>
+    <button id="nav-search" class="navbtn" onclick="showView('search')" data-i18n="nav_search"  data-i18n="search_btn">Search</button>
+    <button id="nav-lists" class="navbtn" onclick="showView('lists')" data-i18n="nav_lists">Lists</button>
+    <button id="nav-dupes" class="navbtn" onclick="showView('dupes')" data-i18n="nav_dupes">Duplicates</button>
+    <a href="/shop" target="_blank" class="navbtn" style="text-decoration:none; display:inline-flex; align-items:center; gap:5px" data-i18n="nav_shop">🛒 Shopping app</a>
+  </nav>
+  <select onchange="setLang(this.value)" id="lang-select" style="margin-left:8px;background:var(--panel);border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:4px 8px;font-size:12px;outline:none;cursor:pointer">
+    <option value="el">🇬🇷 ΕΛ</option>
+    <option value="en">🇬🇧 EN</option>
+    <option value="de">🇩🇪 DE</option>
+  </select>
+  <div class="stats" id="stats"></div>
+</header>
+
+<div class="wrap" id="view-search" style="display:none">
+  <div class="col left">
+    <div class="searchbar" style="display:flex;gap:8px;align-items:center">
+      <input id="q" placeholder="Search products…  (e.g. γάλα, coca cola, καφές)" autocomplete="off" autofocus style="flex:1">
+      <select id="sortby" onchange="renderResults(lastRows)" title="Sort results"
+        style="background:var(--panel);border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:8px 10px;font-size:13px;outline:none;cursor:pointer">
+        <option value="relevance" data-i18n="sort_relevance">Sort: Relevance</option>
+        <option value="price_asc" data-i18n="sort_price_asc">Price ↑ (cheapest)</option>
+        <option value="price_desc" data-i18n="sort_price_desc">Price ↓ (dearest)</option>
+        <option value="name_asc" data-i18n="sort_name_asc">Name A→Z</option>
+        <option value="name_desc" data-i18n="sort_name_desc">Name Z→A</option>
+        <option value="spread_desc" data-i18n="sort_spread">Biggest spread</option>
+        <option value="chains_desc" data-i18n="sort_chains">Most chains</option>
+      </select>
+    </div>
+    <div class="filters" id="filters">
+      <span class="chip" data-r="" >All chains</span>
+    </div>
+    <div id="results"></div>
+  </div>
+
+  <div class="col right">
+    <div id="detail">
+      <div class="placeholder">
+        <div class="big">Select a product</div>
+        Search on the left, then pick a product to see its price across every chain
+        and how each chain's price has moved over time.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Changes dashboard -->
+<div id="view-changes" style="max-width:1100px; margin:0 auto; padding:20px 24px;">
+  <!-- Search field: typing/submitting reveals the search page -->
+  <div style="position:relative; margin-bottom:16px">
+    <input id="dash-search" placeholder="Search products…  (press Enter)" data-i18n-ph="search_ph" autocomplete="off"
+      onkeydown="if(event.key==='Enter') dashSearch()"
+      style="width:100%; box-sizing:border-box; background:var(--panel); border:1px solid var(--line); color:var(--ink); border-radius:10px; padding:12px 44px 12px 14px; font-size:15px; outline:none">
+    <button onclick="dashSearch()" style="position:absolute; right:6px; top:6px; bottom:6px; background:var(--accent); color:#06302c; border:none; border-radius:7px; padding:0 14px; font-weight:600; cursor:pointer">Search</button>
+  </div>
+
+  <!-- Category chips: click to jump into category-filtered search -->
+  <div style="margin-bottom:20px">
+    <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px">
+      <span style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.06em" data-i18n="browse_category">Browse by category</span>
+      <button onclick="toggleAllCats()" id="cats-toggle" style="margin-left:auto; background:none; border:none; color:var(--accent); font-size:12px; cursor:pointer">show all</button>
+    </div>
+    <div id="dash-cats" style="display:flex; flex-wrap:wrap; gap:7px"></div>
+  </div>
+
+  <!-- Products per retailer -->
+  <div style="border-top:1px solid var(--line); padding-top:16px; margin-bottom:22px">
+    <div style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; margin-bottom:12px" data-i18n="products_per_retailer">Products per retailer</div>
+    <div id="retailer-chart"></div>
+  </div>
+
+  <div style="border-top:1px solid var(--line); padding-top:16px; display:flex; align-items:center; gap:12px; margin-bottom:18px;">
+    <span style="font-size:14px; font-weight:700; color:var(--ink)" data-i18n="biggest_changes">Biggest price changes</span>
+    <span style="font-size:13px; color:var(--muted)">· last</span>
+    <select id="ch-window" onchange="loadChanges()" style="background:var(--panel); border:1px solid var(--line); color:var(--ink); border-radius:7px; padding:5px 10px; font-size:13px; outline:none">
+      <option value="7">7 days</option>
+      <option value="30" selected>30 days</option>
+      <option value="60">60 days</option>
+    </select>
+    <span id="ch-status" style="margin-left:auto; font-size:12px; color:var(--dim); font-family:var(--mono)"></span>
+  </div>
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:18px;" id="ch-grid">
+    <div>
+      <p style="font-size:12px; font-weight:700; color:#4fd1c5; margin:0 0 10px; display:flex; align-items:center; gap:6px">▼ Biggest drops</p>
+      <div id="ch-down"></div>
+    </div>
+    <div>
+      <p style="font-size:12px; font-weight:700; color:#ff6b6b; margin:0 0 10px; display:flex; align-items:center; gap:6px">▲ Biggest increases</p>
+      <div id="ch-up"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Lists view -->
+<div id="view-lists" style="display:none; max-width:1100px; margin:0 auto; padding:20px 24px;">
+  <div style="display:grid; grid-template-columns:300px 1fr; gap:20px;">
+    <div>
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px">
+        <span style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">My lists</span>
+        <button onclick="createList()" style="margin-left:auto;background:var(--accent);color:#06302c;border:none;border-radius:7px;padding:4px 10px;font-size:12px;font-weight:600;cursor:pointer">+ New</button>
+      </div>
+      <div id="lists-index"></div>
+    </div>
+    <div id="list-detail">
+      <div style="color:var(--dim);padding:60px 12px;text-align:center">
+        <div style="font-size:15px;color:var(--muted);margin-bottom:6px">Select a list</div>
+        Pick a list to review its items, current prices, and how they've changed since you added them.
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="view-dupes" style="display:none; max-width:1000px; margin:0 auto; padding:20px 24px;">
+  <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px">
+    <span style="font-size:14px; font-weight:700; color:var(--ink)" data-i18n="dupes_title">Duplicate products</span>
+    <button onclick="exportCsv()" id="export-btn" style="margin-left:auto; background:none; border:1px solid var(--line); color:var(--muted); border-radius:7px; padding:6px 14px; font-size:13px; cursor:pointer" data-i18n="dupes_export">Export CSV</button>
+    <button onclick="document.getElementById('import-file').click()" id="import-btn" style="background:none; border:1px solid var(--line); color:var(--muted); border-radius:7px; padding:6px 14px; font-size:13px; cursor:pointer" data-i18n="dupes_import">Import CSV</button>
+    <input type="file" id="import-file" accept=".csv" style="display:none" onchange="importCsv(this)">
+    <button onclick="pruneStale()" id="prune-btn" style="background:none; border:1px solid var(--line); color:var(--muted); border-radius:7px; padding:6px 14px; font-size:13px; cursor:pointer" data-i18n="dupes_prune">Clean up stale</button>
+    <span style="font-size:12px;color:var(--muted)">Merge all ≥</span>
+    <input id="mergeall-threshold" type="number" min="0.80" max="1.0" step="0.01" value="0.86"
+           style="width:58px;background:var(--panel);border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:5px 6px;font-size:13px;font-family:var(--mono)">
+    <button onclick="mergeAllHigh()" id="mergeall-btn" style="background:none; border:1px solid var(--accent); color:var(--accent); border-radius:7px; padding:6px 14px; font-size:13px; font-weight:600; cursor:pointer" data-i18n="dupes_mergeall">Merge</button>
+    <button onclick="runScan()" id="scan-btn" style="background:var(--accent); color:#06302c; border:none; border-radius:7px; padding:6px 14px; font-size:13px; font-weight:600; cursor:pointer" data-i18n="dupes_scan">Scan now</button>
+  </div>
+  <div id="scan-status" style="font-size:12px; color:var(--muted); font-family:var(--mono); margin-bottom:14px"></div>
+  <p style="font-size:12.5px; color:var(--muted); margin:0 0 16px; line-height:1.5" data-i18n="dupes_help">Exact matches across chains are merged automatically. The pairs below look similar but aren't certain — approve to merge them into one product, or reject to keep them separate.</p>
+  <div id="dupes-list"></div>
+</div>
+
+<!-- List chooser modal -->
+<div id="listchooser" style="display:none;position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.5);align-items:center;justify-content:center" onclick="if(event.target===this)closeChooser()">
+  <div style="background:var(--panel);border:1px solid var(--line);border-radius:12px;width:90%;max-width:380px;overflow:hidden">
+    <div style="display:flex;align-items:center;padding:14px 16px;border-bottom:1px solid var(--line)">
+      <span style="font-size:14px;font-weight:600;color:var(--ink)">Add to shopping list</span>
+      <button onclick="closeChooser()" style="margin-left:auto;background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer">×</button>
+    </div>
+    <div id="listchooser-options" style="max-height:340px;overflow-y:auto"></div>
+  </div>
+</div>
+
+<script>
+/* ===== i18n ===== */
+const I18N = {
+  el: {
+    nav_dashboard:"Πίνακας", nav_search:"Αναζήτηση", nav_lists:"Λίστες", nav_dupes:"Διπλότυπα", dupes_title:"Διπλότυπα προϊόντα", dupes_scan:"Σάρωση τώρα", dupes_mergeall:"Συγχώνευση όλων ≥95%", dupes_prune:"Εκκαθάριση παλαιών", dupes_export:"Εξαγωγή CSV", dupes_import:"Εισαγωγή CSV", dupes_help:"Οι ακριβείς αντιστοιχίσεις συγχωνεύονται αυτόματα. Τα παρακάτω ζεύγη μοιάζουν αλλά δεν είναι βέβαια — εγκρίνετε για συγχώνευση ή απορρίψτε.", nav_shop:"🛒 Εφαρμογή Ψωνίων",
+    stat_products:"προϊόντα", stat_chains:"αλυσίδες", stat_multichain:"πολλαπλές", stat_obs:"παρατηρήσεις",
+    search_ph:"Αναζήτηση προϊόντων…  (πατήστε Enter)", search_btn:"Αναζήτηση",
+    browse_category:"Περιήγηση ανά κατηγορία", show_all:"εμφάνιση όλων", show_less:"λιγότερα",
+    biggest_changes:"Μεγαλύτερες μεταβολές τιμών", last:"τις τελευταίες", products_per_retailer:"Προϊόντα ανά αλυσίδα",
+    biggest_drops:"▼ Μεγαλύτερες πτώσεις", biggest_increases:"▲ Μεγαλύτερες αυξήσεις",
+    my_lists:"Οι λίστες μου", new_btn:"+ Νέα", select_list:"Επιλέξτε λίστα",
+    select_list_sub:"Επιλέξτε λίστα για να δείτε τα είδη, τις τιμές και τις μεταβολές.",
+    rename:"Μετονομασία", revaluate:"↻ Επανεκτίμηση επισκέψεων", delete_list:"Διαγραφή λίστας",
+    item:"Είδος", cheapest_now:"Φθηνότερο τώρα", change:"Μεταβολή",
+    add_to_list:"Προσθήκη σε λίστα", select_product:"Επιλέξτε προϊόν",
+    select_product_sub:"Αναζητήστε αριστερά και επιλέξτε προϊόν για τιμές σε όλες τις αλυσίδες.",
+    price_across:"Τιμή στις αλυσίδες — διαφορά", price_history:"Ιστορικό τιμών",
+    chain:"Αλυσίδα", latest_price:"Τελευταία τιμή", vs_cheapest:"vs φθηνότερο",
+    sort_relevance:"Ταξινόμηση: Συνάφεια", sort_price_asc:"Τιμή ↑ (φθηνότερα)", sort_price_desc:"Τιμή ↓ (ακριβότερα)",
+    sort_name_asc:"Όνομα Α→Ω", sort_name_desc:"Όνομα Ω→Α", sort_spread:"Μεγαλύτερη διαφορά", sort_chains:"Περισσότερες αλυσίδες",
+    days7:"7 ημέρες", days30:"30 ημέρες", days60:"60 ημέρες",
+  },
+  en: {
+    nav_dashboard:"Dashboard", nav_search:"Search", nav_lists:"Lists", nav_dupes:"Duplicates", dupes_title:"Duplicate products", dupes_scan:"Scan now", dupes_mergeall:"Merge all ≥95%", dupes_prune:"Clean up stale", dupes_export:"Export CSV", dupes_import:"Import CSV", dupes_help:"Exact matches across chains are merged automatically. The pairs below look similar but aren't certain — approve to merge, or reject to keep them separate.", nav_shop:"🛒 Shopping app",
+    stat_products:"products", stat_chains:"chains", stat_multichain:"multi-chain", stat_obs:"observations",
+    search_ph:"Search products…  (press Enter)", search_btn:"Search",
+    browse_category:"Browse by category", show_all:"show all", show_less:"show less",
+    biggest_changes:"Biggest price changes", last:"last", products_per_retailer:"Products per retailer",
+    biggest_drops:"▼ Biggest drops", biggest_increases:"▲ Biggest increases",
+    my_lists:"My lists", new_btn:"+ New", select_list:"Select a list",
+    select_list_sub:"Pick a list to review its items, current prices, and how they've changed.",
+    rename:"Rename", revaluate:"↻ Re-evaluate visits", delete_list:"Delete list",
+    item:"Item", cheapest_now:"Cheapest now", change:"Change",
+    add_to_list:"Add to shopping list", select_product:"Select a product",
+    select_product_sub:"Search on the left, then pick a product to see its price across every chain.",
+    price_across:"Price across chains — spread", price_history:"Price history",
+    chain:"Chain", latest_price:"Latest price", vs_cheapest:"vs cheapest",
+    sort_relevance:"Sort: Relevance", sort_price_asc:"Price ↑ (cheapest)", sort_price_desc:"Price ↓ (dearest)",
+    sort_name_asc:"Name A→Z", sort_name_desc:"Name Z→A", sort_spread:"Biggest spread", sort_chains:"Most chains",
+    days7:"7 days", days30:"30 days", days60:"60 days",
+  },
+  de: {
+    nav_dashboard:"Übersicht", nav_search:"Suche", nav_lists:"Listen", nav_dupes:"Duplikate", dupes_title:"Doppelte Produkte", dupes_scan:"Jetzt scannen", dupes_mergeall:"Alle ≥95% zusammenführen", dupes_prune:"Veraltete bereinigen", dupes_export:"CSV exportieren", dupes_import:"CSV importieren", dupes_help:"Exakte Übereinstimmungen werden automatisch zusammengeführt. Die Paare unten ähneln sich, sind aber nicht sicher — bestätigen oder ablehnen.", nav_shop:"🛒 Einkaufs-App",
+    stat_products:"Produkte", stat_chains:"Ketten", stat_multichain:"Mehrketten", stat_obs:"Beobachtungen",
+    search_ph:"Produkte suchen…  (Enter drücken)", search_btn:"Suchen",
+    browse_category:"Nach Kategorie", show_all:"alle anzeigen", show_less:"weniger",
+    biggest_changes:"Größte Preisänderungen", last:"letzte", products_per_retailer:"Produkte pro Kette",
+    biggest_drops:"▼ Größte Rückgänge", biggest_increases:"▲ Größte Anstiege",
+    my_lists:"Meine Listen", new_btn:"+ Neu", select_list:"Liste auswählen",
+    select_list_sub:"Wählen Sie eine Liste, um Artikel, aktuelle Preise und Änderungen zu sehen.",
+    rename:"Umbenennen", revaluate:"↻ Besuche neu bewerten", delete_list:"Liste löschen",
+    item:"Artikel", cheapest_now:"Günstigste jetzt", change:"Änderung",
+    add_to_list:"Zur Einkaufsliste", select_product:"Produkt auswählen",
+    select_product_sub:"Links suchen, dann ein Produkt für Preise in allen Ketten wählen.",
+    price_across:"Preis über Ketten — Spanne", price_history:"Preisverlauf",
+    chain:"Kette", latest_price:"Letzter Preis", vs_cheapest:"vs günstigste",
+    sort_relevance:"Sortieren: Relevanz", sort_price_asc:"Preis ↑ (günstigste)", sort_price_desc:"Preis ↓ (teuerste)",
+    sort_name_asc:"Name A→Z", sort_name_desc:"Name Z→A", sort_spread:"Größte Spanne", sort_chains:"Meiste Ketten",
+    days7:"7 Tage", days30:"30 Tage", days60:"60 Tage",
+  }
+};
+let LANG = localStorage.getItem("pm_lang") || "el";
+function t(key){ return (I18N[LANG] && I18N[LANG][key]) || I18N.en[key] || key; }
+function applyI18n(){
+  document.querySelectorAll('[data-i18n]').forEach(el=>{ el.textContent = t(el.getAttribute('data-i18n')); });
+  document.querySelectorAll('[data-i18n-ph]').forEach(el=>{ el.placeholder = t(el.getAttribute('data-i18n-ph')); });
+}
+function setLang(l){
+  LANG = l; localStorage.setItem("pm_lang", l); document.documentElement.lang = l;
+  applyI18n();
+  if(_lastStats) renderStatsBar(_lastStats);
+  // refresh dynamic views
+  try { if(document.getElementById('view-changes').style.display!=='none'){ loadChanges(); loadDashCats(); } } catch(e){}
+  try { if(currentListId) openList(currentListId); } catch(e){}
+}
+
+const RETAILER_COLORS = {
+  mymarket:'#e84393', ab:'#0984e3', ab_vasilopoulos:'#0984e3', sklavenitis:'#e17055',
+  masoutis:'#00b894', lidl:'#fdcb6e', galaxias:'#6c5ce7', synka:'#00cec9',
+  kritikos:'#fab1a0', market_in:'#a29bfe', halkiadakis:'#55efc4', bazaar:'#fd79a8',
+};
+const color = r => RETAILER_COLORS[r] || '#8a99a5';
+const fmt = v => v==null ? '—' : v.toFixed(2).replace('.',',')+' €';
+
+let sel = null;
+
+// ===== View switching =====
+function showView(v){
+  document.getElementById('view-search').style.display = v==='search' ? '' : 'none';
+  document.getElementById('view-changes').style.display = v==='changes' ? '' : 'none';
+  document.getElementById('view-lists').style.display = v==='lists' ? '' : 'none';
+  document.getElementById('view-dupes').style.display = v==='dupes' ? '' : 'none';
+  document.getElementById('nav-search').classList.toggle('on', v==='search');
+  document.getElementById('nav-changes').classList.toggle('on', v==='changes');
+  document.getElementById('nav-lists').classList.toggle('on', v==='lists');
+  document.getElementById('nav-dupes').classList.toggle('on', v==='dupes');
+  if(v==='changes') { loadChanges(); loadDashCats(); loadRetailerChart(); }
+  if(v==='dupes') loadDupes();
+  if(v==='lists') loadListsIndex();
+}
+
+// ===== Dashboard search + categories =====
+function dashSearch(){
+  const q = document.getElementById('dash-search').value.trim();
+  showView('search');
+  // A free-text search from the dashboard starts fresh (no lingering category).
+  currentCategory = null;
+  runSearch(q, null);
+}
+
+let allCats = [], catsExpanded = false, currentCategory = null;
+async function loadRetailerChart(){
+  const box = document.getElementById('retailer-chart');
+  let rows;
+  try { rows = await j('/api/retailers'); } catch { box.innerHTML=''; return; }
+  if(!rows || !rows.length){ box.innerHTML = '<span style="color:var(--dim);font-size:12px">No data yet — run a scrape.</span>'; return; }
+  rows.sort((a,b)=> b.offers - a.offers);
+  const max = Math.max(...rows.map(r=>r.offers));
+  // Horizontal bars, label + count, scaled to the max.
+  box.innerHTML = rows.map(r => {
+    const w = max ? Math.round(100*r.offers/max) : 0;
+    return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+      <div style="width:120px;flex-shrink:0;font-size:12.5px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(r.retailer)}">${esc(r.retailer)}</div>
+      <div style="flex:1;background:var(--panel-2);border-radius:4px;height:18px;position:relative;overflow:hidden">
+        <div style="position:absolute;left:0;top:0;bottom:0;width:${w}%;background:var(--accent);border-radius:4px;min-width:2px"></div>
+      </div>
+      <div style="width:64px;flex-shrink:0;text-align:right;font-family:var(--mono);font-size:12px;color:var(--muted)">${r.offers.toLocaleString()}</div>
+    </div>`;
+  }).join('');
+}
+
+async function loadDashCats(){
+  if(!allCats.length){
+    try { allCats = await j('/api/categories'); } catch { allCats = []; }
+  }
+  renderDashCats();
+}
+function renderDashCats(){
+  const box = document.getElementById('dash-cats');
+  if(!allCats.length){ box.innerHTML = '<span style="color:var(--dim);font-size:12px">No categories yet — run a scrape.</span>'; return; }
+  const shown = catsExpanded ? allCats : allCats.slice(0, 12);
+  box.innerHTML = shown.map(c =>
+    `<button onclick="categorySearch('${esc(c.category).replace(/'/g,"&#39;")}')"
+      style="background:var(--panel);border:1px solid var(--line);color:var(--ink);border-radius:999px;padding:5px 12px;font-size:12.5px;cursor:pointer">
+      ${esc(c.category)} <span style="color:var(--dim)">${c.n}</span></button>`).join('');
+  document.getElementById('cats-toggle').textContent =
+    catsExpanded ? 'show less' : ('show all ('+allCats.length+')');
+}
+function toggleAllCats(){ catsExpanded = !catsExpanded; renderDashCats(); }
+
+function categorySearch(cat){
+  currentCategory = cat;
+  showView('search');
+  document.getElementById('q').value = '';
+  runSearch('', cat);
+}
+
+// ===== Server-stored lists =====
+let currentListId = null;
+// ===== Duplicates review =====
+async function loadDupes(){
+  const box = document.getElementById('dupes-list');
+  box.innerHTML = '<div style="color:var(--dim);font-size:13px;padding:20px 0">Loading…</div>';
+  let cands;
+  try { cands = await j('/api/dedup/candidates'); } catch { box.innerHTML='<div style="color:#ff6b6b;font-size:13px">Failed to load.</div>'; return; }
+  if(!cands.length){
+    box.innerHTML = '<div style="color:var(--dim);font-size:13px;padding:30px 0;text-align:center">No pending duplicate candidates. Run a scan to find more.</div>';
+    return;
+  }
+  box.innerHTML = cands.map(c => {
+    const pct = Math.round(c.score*100);
+    const hi = c.score >= 0.95;
+    const badgeColor = hi ? '#4fd1c5' : '#ffd166';
+    return `<div style="background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:10px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <span style="font-size:11px;font-weight:700;color:${badgeColor};font-family:var(--mono)">${pct}% match${hi?' · high confidence':''}</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+        <div style="border:1px solid var(--line);border-radius:8px;padding:10px">
+          <div style="font-size:13px;color:var(--ink)">${esc(c.a_name)}</div>
+          <div style="font-size:11px;color:var(--dim)">${esc(c.a_brand||'—')} · #${c.a_id}</div>
+        </div>
+        <div style="border:1px solid var(--line);border-radius:8px;padding:10px">
+          <div style="font-size:13px;color:var(--ink)">${esc(c.b_name)}</div>
+          <div style="font-size:11px;color:var(--dim)">${esc(c.b_brand||'—')} · #${c.b_id}</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button onclick="resolveDupe(${c.id}, true, ${c.a_id})" style="flex:1;background:var(--accent);color:#06302c;border:none;border-radius:7px;padding:7px;font-size:12.5px;font-weight:600;cursor:pointer">Merge — keep #${c.a_id}</button>
+        <button onclick="resolveDupe(${c.id}, false)" style="background:none;border:1px solid var(--line);color:var(--muted);border-radius:7px;padding:7px 14px;font-size:12.5px;cursor:pointer">Not the same</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function resolveDupe(id, approve, into){
+  await fetch('/api/dedup/candidates/'+id, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({approve, into})
+  });
+  loadDupes();
+  if(_lastStats){ try { const st = await j('/api/stats'); renderStatsBar(st); } catch(e){} }
+}
+
+function exportCsv(){
+  // include all statuses? default pending. Trigger a download.
+  window.location = '/api/dedup/export.csv?status=pending';
+}
+
+async function importCsv(input){
+  const file = input.files && input.files[0];
+  if(!file) return;
+  const status = document.getElementById('scan-status');
+  status.textContent = 'Importing decisions…';
+  const fd = new FormData();
+  fd.append('file', file);
+  try {
+    const res = await (await fetch('/api/dedup/import', {method:'POST', body:fd})).json();
+    if(res.error){ status.textContent = 'Import failed: '+res.error; }
+    else {
+      status.textContent = `Imported: ${res.merged} merged, ${res.rejected} rejected, ${res.skipped} skipped` + (res.missing?`, ${res.missing} not found`:'') + '.';
+    }
+  } catch { status.textContent = 'Import failed.'; }
+  input.value = '';
+  loadDupes();
+  if(_lastStats){ try { const st = await j('/api/stats'); renderStatsBar(st); } catch(e){} }
+}
+
+async function pruneStale(){
+  const btn = document.getElementById('prune-btn');
+  const status = document.getElementById('scan-status');
+  btn.disabled = true;
+  const stop = _startWorking(status, 'Re-checking pending candidates against current rules');
+  try {
+    const res = await (await fetch('/api/dedup/prune', {method:'POST'})).json();
+    const secs = stop();
+    status.textContent = `✓ Done in ${secs}s — removed ${res.removed} stale candidate(s) that no longer match.`;
+  } catch { stop(); status.textContent = '✗ Clean-up failed.'; }
+  btn.disabled = false;
+  loadDupes();
+}
+
+async function mergeAllHigh(){
+  let thr = parseFloat(document.getElementById('mergeall-threshold').value);
+  if(isNaN(thr) || thr < 0.80) thr = 0.80;       // backstop: never below 0.80 from UI
+  const pct = Math.round(thr*100);
+  const cands = await j('/api/dedup/candidates').catch(()=>[]);
+  const high = cands.filter(c => c.score >= thr).length;
+  if(!high){ document.getElementById('scan-status').textContent = `No candidates at ${pct}% or above to merge.`; return; }
+  if(!confirm(`Merge ${high} pair${high===1?'':'s'} scoring ${pct}%+? Pairs below ${pct}% stay for review. Reversible per-product later.`)) return;
+  const btn = document.getElementById('mergeall-btn');
+  btn.disabled = true;
+  const status = document.getElementById('scan-status');
+  const stop = _startWorking(status, `Merging ${high} pair(s) at ${pct}%+`);
+  try {
+    const res = await (await fetch('/api/dedup/merge-all', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({threshold:thr})
+    })).json();
+    const secs = stop();
+    status.textContent = `✓ Merged ${res.merged} pair(s) in ${secs}s. Remaining are below ${pct}% — review individually.`;
+    if(_lastStats){ try { const st = await j('/api/stats'); renderStatsBar(st); } catch(e){} }
+  } catch { stop(); status.textContent = '✗ Bulk merge failed.'; }
+  btn.disabled = false;
+  loadDupes();
+}
+
+let _scanTimer = null;
+function _startWorking(statusEl, label){
+  const t0 = Date.now();
+  let dots = 0;
+  clearInterval(_scanTimer);
+  _scanTimer = setInterval(() => {
+    dots = (dots + 1) % 4;
+    const secs = Math.floor((Date.now() - t0) / 1000);
+    statusEl.textContent = `${label}${'.'.repeat(dots)}${' '.repeat(3-dots)}  (${secs}s — this can take a minute on a large catalog)`;
+  }, 500);
+  return () => { clearInterval(_scanTimer); _scanTimer = null; return Math.floor((Date.now()-t0)/1000); };
+}
+
+async function runScan(){
+  const btn = document.getElementById('scan-btn');
+  const status = document.getElementById('scan-status');
+  btn.disabled = true;
+  const stop = _startWorking(status, 'Scanning the full catalog for duplicates');
+  try {
+    const res = await (await fetch('/api/dedup/scan', {method:'POST'})).json();
+    const secs = stop();
+    status.textContent = `✓ Scan complete in ${secs}s — auto-merged ${res.auto_merged}, ${res.candidates_added} candidate(s) queued for review.`;
+    if(_lastStats){ try { const st = await j('/api/stats'); renderStatsBar(st); } catch(e){} }
+  } catch {
+    stop();
+    status.textContent = '✗ Scan failed — see server logs.';
+  }
+  btn.disabled = false;
+  loadDupes();
+}
+
+async function loadListsIndex(){
+  const lists = await j('/api/lists');
+  const el = document.getElementById('lists-index');
+  if(!lists.length){
+    el.innerHTML = '<div style="color:var(--dim);font-size:13px;padding:12px 0">No lists yet. Create one, or add items from the Changes/Search views.</div>';
+    return;
+  }
+  el.innerHTML = lists.map(l => `
+    <button onclick="openList(${l.id})" id="lidx-${l.id}"
+      style="display:block;width:100%;text-align:left;padding:11px 12px;background:${l.id===currentListId?'var(--panel-2)':'var(--panel)'};border:1px solid var(--line);border-radius:9px;margin-bottom:7px;cursor:pointer">
+      <div style="font-size:14px;color:var(--ink);font-weight:600">${esc(l.name)}</div>
+      <div style="font-size:11px;color:var(--dim);font-family:var(--mono)">${l.item_count} item${l.item_count!=1?'s':''}</div>
+    </button>`).join('');
+}
+
+async function createList(){
+  const name = prompt('Name the new list:', 'New list');
+  if(name===null) return;
+  const r = await j2('/api/lists', 'POST', {name: name.trim()||'Untitled'});
+  await loadListsIndex();
+  if(r.id) openList(r.id);
+}
+
+async function openList(id){
+  currentListId = id;
+  await loadListsIndex();
+  const data = await j('/api/lists/'+id);
+  const el = document.getElementById('list-detail');
+  if(data.error){ el.innerHTML = 'List not found.'; return; }
+
+  const rows = data.items.map(it => {
+    const sinceColor = it.since_added==null ? 'var(--dim)' :
+      it.since_added > 0 ? '#ff6b6b' : it.since_added < 0 ? '#4fd1c5' : 'var(--muted)';
+    const sinceTxt = it.since_added==null ? '—' :
+      (it.since_added>0?'+':'')+fmt(it.since_added)+' since added';
+    const nChains = Object.keys(it.current_prices||{}).length;
+    return `<tr style="border-top:1px solid var(--line)">
+      <td style="padding:9px 8px">
+        <div style="font-size:13.5px;color:var(--ink)">${esc(it.name)}</div>
+        <div style="font-size:11px;color:var(--dim)">${esc(it.category||'')}${it.qty>1?' · ×'+it.qty:''}</div>
+      </td>
+      <td style="padding:9px 8px;text-align:right;font-family:var(--mono)">
+        <div style="font-size:13px;color:var(--ink);font-weight:600">${it.current_min!=null?fmt(it.current_min):'—'}</div>
+        <div style="font-size:10.5px;color:var(--dim)">${nChains?nChains+' chains':'no data'}</div>
+      </td>
+      <td style="padding:9px 8px;text-align:right;font-family:var(--mono);font-size:11.5px;color:${sinceColor}">${sinceTxt}</td>
+      <td style="padding:9px 8px;text-align:right">
+        ${it.product_id!=null?`<button onclick="toggleItemHistory(${it.id},this)" style="background:none;border:1px solid var(--line);color:var(--muted);border-radius:6px;padding:3px 8px;font-size:11px;cursor:pointer">trend</button>`:''}
+        <button onclick="removeItem(${it.id},${id})" style="background:none;border:none;color:var(--dim);cursor:pointer;font-size:14px;margin-left:4px">×</button>
+      </td>
+    </tr>
+    <tr id="hist-${it.id}" style="display:none"><td colspan="4" style="padding:0 8px 12px"><svg id="histsvg-${it.id}" style="width:100%;height:120px"></svg></td></tr>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+      <h2 style="font-size:18px;margin:0;color:var(--ink)">${esc(data.name)}</h2>
+      <button onclick="renameList(${id},'${esc(data.name).replace(/'/g,"&#39;")}')" style="background:none;border:1px solid var(--line);color:var(--muted);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">Rename</button>
+      <button onclick="revaluateList(${id})" style="background:var(--accent);color:#06302c;border:none;border-radius:6px;padding:4px 12px;font-size:12px;font-weight:600;cursor:pointer">↻ Re-evaluate visits</button>
+      <button onclick="deleteList(${id})" style="margin-left:auto;background:none;border:1px solid var(--line);color:#ff6b6b;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">Delete list</button>
+    </div>
+    <div id="revaluate-panel"></div>
+    ${data.items.length===0 ? '<div style="color:var(--dim);padding:30px 0">This list is empty. Add items from Search or Changes.</div>' :
+    `<table style="width:100%;border-collapse:collapse">
+      <thead><tr style="text-align:left">
+        <th style="padding:6px 8px;font-size:10.5px;text-transform:uppercase;color:var(--dim);letter-spacing:.05em">Item</th>
+        <th style="padding:6px 8px;font-size:10.5px;text-transform:uppercase;color:var(--dim);text-align:right">Cheapest now</th>
+        <th style="padding:6px 8px;font-size:10.5px;text-transform:uppercase;color:var(--dim);text-align:right">Change</th>
+        <th></th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`}`;
+}
+
+async function revaluateList(id){
+  const panel = document.getElementById('revaluate-panel');
+  panel.innerHTML = '<div style="color:var(--dim);font-size:12px;padding:8px 0">Re-evaluating…</div>';
+  let rev;
+  try { rev = await j('/api/lists/'+id+'/revaluate'); } catch { panel.innerHTML=''; return; }
+
+  const planned = rev.items.filter(i => i.planned);
+  if(!planned.length){
+    panel.innerHTML =
+      `<div style="background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:14px">
+        <div style="font-size:13px;color:var(--ink);margin-bottom:8px">This list hasn't been planned yet — set a baseline of where each item is cheapest now, so future re-evaluations can flag when a cheaper store appears.</div>
+        <button onclick="planList(${id})" style="background:var(--accent);color:#06302c;border:none;border-radius:7px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer">Set plan baseline</button>
+      </div>`;
+    return;
+  }
+
+  const changed = rev.items.filter(i => i.store_changed);
+  const s = rev.summary;
+  let html = `<div style="background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:14px">`;
+  if(changed.length){
+    html += `<div style="font-size:13px;font-weight:700;color:#ffd166;margin-bottom:10px">↻ ${changed.length} item${changed.length>1?'s have':' has'} a new cheapest store since you planned</div>`;
+    html += changed.map(i => {
+      const dc = i.price_delta==null ? 'var(--dim)' : i.price_delta<0 ? '#4fd1c5' : '#ff6b6b';
+      return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--line)">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;color:var(--ink)">${esc(i.name)}</div>
+          <div style="font-size:11.5px;color:var(--muted)">was <b>${esc(i.planned_retailer)}</b> ${fmt(i.planned_price)} → now <b style="color:var(--accent)">${esc(i.current_retailer)}</b> ${fmt(i.current_price)}</div>
+        </div>
+        <div style="font-family:var(--mono);font-size:12px;color:${dc}">${i.price_delta>0?'+':''}${fmt(i.price_delta)}</div>
+      </div>`;
+    }).join('');
+  } else {
+    html += `<div style="font-size:13px;color:#4fd1c5">✓ Your planned stores are still the cheapest. No visits need to change.</div>`;
+  }
+  if(s.delta!=null){
+    const dc = s.delta<0 ? '#4fd1c5' : s.delta>0 ? '#ff6b6b' : 'var(--muted)';
+    html += `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line);font-size:12px;color:var(--muted)">
+      Basket at cheapest: planned ${fmt(s.planned_total)} → now <b style="color:var(--ink)">${fmt(s.current_total)}</b>
+      <span style="color:${dc};font-family:var(--mono);margin-left:6px">${s.delta>0?'+':''}${fmt(s.delta)}</span></div>`;
+  }
+  html += `<button onclick="planList(${id})" style="margin-top:10px;background:none;border:1px solid var(--line);color:var(--muted);border-radius:7px;padding:5px 12px;font-size:12px;cursor:pointer">Re-plan from current prices</button>`;
+  html += `</div>`;
+  panel.innerHTML = html;
+}
+
+async function planList(id){
+  await fetch('/api/lists/'+id+'/plan', {method:'POST'});
+  revaluateList(id);
+}
+
+async function renameList(id, current){
+  const name = prompt('Rename list:', current);
+  if(name===null || !name.trim()) return;
+  await j2('/api/lists/'+id, 'PATCH', {name: name.trim()});
+  await loadListsIndex(); openList(id);
+}
+async function deleteList(id){
+  if(!confirm('Delete this list and all its items?')) return;
+  await fetch('/api/lists/'+id, {method:'DELETE'});
+  currentListId = null;
+  await loadListsIndex();
+  document.getElementById('list-detail').innerHTML = '<div style="color:var(--dim);padding:60px 12px;text-align:center">List deleted. Select another list.</div>';
+}
+async function removeItem(itemId, listId){
+  await fetch('/api/list-items/'+itemId, {method:'DELETE'});
+  openList(listId);
+}
+
+const histShown = {};
+async function toggleItemHistory(itemId, btn){
+  const row = document.getElementById('hist-'+itemId);
+  if(row.style.display==='none'){
+    row.style.display='';
+    if(!histShown[itemId]){
+      const h = await j('/api/list-items/'+itemId+'/history');
+      drawSparkline('histsvg-'+itemId, h);
+      histShown[itemId]=true;
+    }
+  } else { row.style.display='none'; }
+}
+
+function drawSparkline(svgId, series){
+  const svg = document.getElementById(svgId);
+  const all = [];
+  Object.entries(series).forEach(([ret,pts])=> pts.forEach(p=>all.push({ret,t:+new Date(p.observed_at),y:p.price})));
+  if(!all.length){ svg.innerHTML = '<text x="8" y="20" fill="#5c6c70" font-size="11">no history</text>'; return; }
+  const W=svg.clientWidth||500, H=120, pad={l:38,r:8,t:8,b:18};
+  const ts=all.map(a=>a.t), ys=all.map(a=>a.y);
+  const t0=Math.min(...ts), t1=Math.max(...ts); let y0=Math.min(...ys), y1=Math.max(...ys);
+  if(y0===y1){y0-=1;y1+=1;}
+  const x=t=>pad.l+(t1===t0?0:(t-t0)/(t1-t0))*(W-pad.l-pad.r);
+  const y=v=>pad.t+(1-(v-y0)/(y1-y0))*(H-pad.t-pad.b);
+  let g='';
+  for(let i=0;i<=2;i++){const val=y0+(y1-y0)*i/2,yy=y(val);
+    g+=`<line x1="${pad.l}" y1="${yy}" x2="${W-pad.r}" y2="${yy}" stroke="#2a353e"/><text x="4" y="${yy+3}" fill="#5c6c70" font-size="9" font-family="monospace">${val.toFixed(2)}</text>`;}
+  Object.entries(series).forEach(([ret,pts])=>{
+    const sp=pts.slice().sort((a,b)=>new Date(a.observed_at)-new Date(b.observed_at));
+    const d=sp.map((p,i)=>`${i?'L':'M'}${x(+new Date(p.observed_at)).toFixed(1)},${y(p.price).toFixed(1)}`).join(' ');
+    g+=`<path d="${d}" fill="none" stroke="${color(ret)}" stroke-width="1.8"/>`;
+  });
+  svg.innerHTML=g;
+}
+
+// helper for non-GET fetches
+async function j2(url, method, body){
+  const r = await fetch(url, {method, headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+  return r.json();
+}
+
+// ===== Changes dashboard (shares lists with the grocery app via localStorage) =====
+const LS_LISTS = "grocery_lists_v1";
+function loadLists(){
+  try { return JSON.parse(localStorage.getItem(LS_LISTS)) || {lists:[],activeId:null}; }
+  catch { return {lists:[],activeId:null}; }
+}
+function saveListsLS(d){ localStorage.setItem(LS_LISTS, JSON.stringify(d)); }
+
+async function loadChanges(){
+  const days = document.getElementById('ch-window').value;
+  const status = document.getElementById('ch-status');
+  status.textContent = "loading…";
+  try {
+    const ch = await j('/api/changes?days='+days+'&limit=25');
+    renderMovers('ch-down', ch.down);
+    renderMovers('ch-up', ch.up);
+    status.textContent = (ch.up.length+ch.down.length)+" movers";
+  } catch(e){
+    status.textContent = "error loading changes";
+  }
+}
+
+function renderMovers(elId, movers){
+  const el = document.getElementById(elId);
+  if(!movers || !movers.length){ el.innerHTML = '<div style="color:var(--dim);font-size:13px;padding:20px 0">No movers in this window.</div>'; return; }
+  el.innerHTML = movers.map(m => {
+    const up = m.change>0;
+    const c = up ? '#ff6b6b' : '#4fd1c5';
+    return `<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--panel);border:1px solid var(--line);border-radius:9px;margin-bottom:7px">
+      <div style="min-width:0;flex:1">
+        <div style="font-size:13.5px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(m.name)}</div>
+        <div style="font-size:11px;color:var(--dim);font-family:var(--mono)">${m.retailer} · ${fmt(m.old)} → ${fmt(m.new)}</div>
+      </div>
+      <div style="text-align:right;font-family:var(--mono)">
+        <div style="font-size:13px;font-weight:700;color:${c}">${up?'+':''}${m.pct}%</div>
+        <div style="font-size:11px;color:${c}">${up?'+':''}${fmt(m.change)}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+let pendingItem = null;
+function addToList(payloadStr){
+  let m;
+  try { m = JSON.parse(payloadStr); } catch { return; }
+  pendingItem = {name:m.name, category:mapCat(m.category||''), price:m.price, productId:m.productId};
+  openListChooser();
+}
+
+function mapCat(c){
+  const t = (c||'').toLowerCase();
+  if(/γαλακτ|dairy|τυρ/.test(t)) return 'Dairy';
+  if(/φρουτ|λαχαν|produce/.test(t)) return 'Produce';
+  if(/αρτ|ψωμ|bakery/.test(t)) return 'Bakery';
+  if(/κρεα|ψαρ|meat|fish/.test(t)) return 'Meat & Fish';
+  if(/ποτ|αναψυκ|νερο|χυμ|καφε|drink/.test(t)) return 'Drinks';
+  if(/καθαρ|χαρτ|household/.test(t)) return 'Household';
+  return 'Pantry';
+}
+
+async function openListChooser(){
+  const lists = await j('/api/lists');
+  const box = document.getElementById('listchooser-options');
+  let html = lists.map(l =>
+    `<button onclick="chooseList(${l.id})" style="display:block;width:100%;text-align:left;padding:11px 14px;background:transparent;border:none;border-bottom:1px solid var(--line);color:var(--ink);cursor:pointer;font-size:14px">
+      ${esc(l.name)} <span style="color:var(--dim);font-size:12px;float:right">${l.item_count} items</span></button>`).join('');
+  html += `<button onclick="chooseList('new')" style="display:block;width:100%;text-align:left;padding:11px 14px;background:transparent;border:none;color:var(--accent);cursor:pointer;font-size:14px;font-weight:600">+ New list…</button>`;
+  box.innerHTML = html;
+  document.getElementById('listchooser').style.display = 'flex';
+}
+async function chooseList(id){
+  if(!pendingItem) return;
+  let listId = id;
+  if(id==='new'){
+    const name = prompt('Name the new list:', 'Deals');
+    if(name===null) return;
+    const r = await j2('/api/lists', 'POST', {name: name.trim()||'Deals'});
+    listId = r.id;
+  }
+  await j2('/api/lists/'+listId+'/items', 'POST', {
+    name: pendingItem.name, product_id: pendingItem.productId,
+    category: pendingItem.category, qty: 1, added_price: pendingItem.price
+  });
+  closeChooser();
+  document.getElementById('ch-status').textContent = 'added to list';
+  pendingItem = null;
+}
+function closeChooser(){ document.getElementById('listchooser').style.display='none'; }
+function esc(s){ return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+async function j(url){ const r = await fetch(url); return r.json(); }
+
+let _lastStats = null;
+function renderStatsBar(s){
+  _lastStats = s;
+  document.getElementById('stats').innerHTML =
+    `<span><b>${s.products.toLocaleString()}</b> ${t('stat_products')}</span>`+
+    `<span><b>${s.retailers}</b> ${t('stat_chains')}</span>`+
+    `<span><b>${s.multi_chain.toLocaleString()}</b> ${t('stat_multichain')}</span>`+
+    `<span><b>${s.observations.toLocaleString()}</b> ${t('stat_obs')}</span>`;
+}
+async function init(){
+  // i18n init
+  document.documentElement.lang = LANG;
+  const ls = document.getElementById('lang-select'); if(ls) ls.value = LANG;
+  applyI18n();
+
+  const s = await j('/api/stats');
+  renderStatsBar(s);
+
+  const rs = await j('/api/retailers');
+  const f = document.getElementById('filters');
+  rs.forEach(r => {
+    const c = document.createElement('span');
+    c.className='chip'; c.dataset.r=r.retailer;
+    c.textContent = r.retailer;
+    f.appendChild(c);
+  });
+  f.addEventListener('click', e => {
+    if(!e.target.classList.contains('chip')) return;
+    [...f.children].forEach(x=>x.classList.remove('on'));
+    e.target.classList.add('on');
+    activeRetailer = e.target.dataset.r;
+    search();
+  });
+  f.firstElementChild.classList.add('on');
+
+  // Landing view is the dashboard: load movers + categories.
+  loadChanges();
+  loadDashCats();
+  loadRetailerChart();
+}
+
+let activeRetailer = '';
+let timer = null;
+const qbox = document.getElementById('q');
+qbox.addEventListener('input', ()=>{ clearTimeout(timer); timer=setTimeout(search,180); });
+
+async function search(){
+  const q = qbox.value.trim();
+  const params = new URLSearchParams({q, limit:300});
+  if(activeRetailer) params.set('retailer', activeRetailer);
+  if(currentCategory) params.set('category', currentCategory);
+  const rows = await j('/api/search?'+params);
+  rows.forEach((r,i)=> r._ord = i);   // preserve server (relevance) order
+  renderResults(rows);
+  renderCatFilterBadge();
+}
+
+// Called from the dashboard to run a search with optional category filter.
+function runSearch(q, category){
+  currentCategory = category || null;
+  qbox.value = q || '';
+  search();
+}
+
+function renderCatFilterBadge(){
+  let badge = document.getElementById('cat-filter-badge');
+  const bar = document.getElementById('filters');
+  if(currentCategory){
+    if(!badge){
+      badge = document.createElement('span');
+      badge.id = 'cat-filter-badge';
+      badge.style.cssText = 'display:inline-flex;align-items:center;gap:6px;background:var(--accent);color:#06302c;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:600;margin-left:6px';
+      bar.appendChild(badge);
+    }
+    badge.innerHTML = 'Category: '+esc(currentCategory)+' <span style="cursor:pointer;font-weight:800" onclick="clearCategory()">×</span>';
+    badge.style.display = '';
+  } else if(badge){
+    badge.style.display = 'none';
+  }
+}
+function clearCategory(){ currentCategory = null; search(); }
+
+let lastRows = [];
+function sortRows(rows){
+  const mode = (document.getElementById('sortby')||{}).value || 'relevance';
+  const r = rows.slice();
+  const spread = p => (p.min_price!=null && p.max_price!=null) ? (p.max_price-p.min_price) : -1;
+  const nm = p => (p.name||'').toLowerCase();
+  const cmp = {
+    relevance:  (a,b)=> (a._ord??0)-(b._ord??0),
+    price_asc:  (a,b)=> (a.min_price??1e9)-(b.min_price??1e9),
+    price_desc: (a,b)=> (b.min_price??-1)-(a.min_price??-1),
+    name_asc:   (a,b)=> nm(a).localeCompare(nm(b),'el'),
+    name_desc:  (a,b)=> nm(b).localeCompare(nm(a),'el'),
+    spread_desc:(a,b)=> spread(b)-spread(a),
+    chains_desc:(a,b)=> (b.retailer_count||0)-(a.retailer_count||0),
+  }[mode] || ((a,b)=>0);
+  return r.sort(cmp);
+}
+
+function renderResults(rows){
+  lastRows = rows || lastRows;
+  const el = document.getElementById('results');
+  if(!lastRows.length){ el.innerHTML = '<div class="empty">No products match. Try a shorter or different term.</div>'; return; }
+  el.innerHTML = '';
+  sortRows(lastRows).forEach(p => {
+    const gap = (p.min_price!=null && p.max_price!=null) ? (p.max_price - p.min_price) : null;
+    const pctGap = (gap!=null && p.min_price>0) ? Math.round(100*gap/p.min_price) : null;
+    const div = document.createElement('div');
+    div.className = 'result' + (sel===p.product_id?' sel':'');
+    div.innerHTML =
+      (p.image_url ? `<img class="thumb" src="${p.image_url}" loading="lazy" onerror="this.style.visibility='hidden'">`
+                   : `<div class="thumb"></div>`)+
+      `<div><div class="name">${escapeHtml(p.name||'?')}</div>`+
+      `<div class="meta">${escapeHtml(p.category||'')}${p.brand? ' · '+escapeHtml(p.brand):''}</div></div>`+
+      `<div class="spread"><div class="lo">${fmt(p.min_price)}</div>`+
+      (gap!=null && gap>0 ? `<div class="gap">+${fmt(gap)}${pctGap!=null?` (${pctGap}%)`:''}</div>`:'')+
+      `<div class="n">${p.retailer_count} chain${p.retailer_count>1?'s':''}</div></div>`+
+      `<button class="addbtn" title="Add to list"
+         onclick='event.stopPropagation();addToList(${JSON.stringify(JSON.stringify({name:p.name,category:p.category,price:p.min_price,productId:p.product_id})).replace(/'/g,"&#39;")})'>+</button>`;
+    div.onclick = ()=>{ sel=p.product_id; renderResults(lastRows); openProduct(p.product_id); };
+    el.appendChild(div);
+  });
+}
+
+async function openProduct(pid){
+  const data = await j('/api/product/'+pid);
+  const d = document.getElementById('detail');
+  const p = data.product;
+  const offers = data.offers.filter(o=>o.price!=null).sort((a,b)=>a.price-b.price);
+  if(!offers.length){ d.innerHTML='<div class="placeholder">No price data for this product.</div>'; return; }
+
+  const lo = offers[0].price, hi = offers[offers.length-1].price;
+  const span = Math.max(hi-lo, 0.0001);
+
+  // Cross-chain spread visualization (the signature element)
+  let nodes = '';
+  offers.forEach((o,i)=>{
+    const pos = ((o.price-lo)/span)*100;
+    const cls = i===0?'cheap':(i===offers.length-1 && hi>lo?'dear':'');
+    nodes += `<div class="node ${cls}" style="left:${pos}%">`+
+      `<span class="pr">${fmt(o.price)}</span>`+
+      `<span class="pt" title="${o.retailer}"></span>`+
+      `<span class="lbl">${o.retailer}</span></div>`;
+  });
+  const fillW = hi>lo ? 100 : 0;
+
+  let rows = offers.map((o,i)=>{
+    const delta = i===0?'cheapest':`+${fmt(o.price-lo)}`;
+    return `<tr class="chrow" onclick="loadHistory(${o.offer_id},'${o.retailer}')">`+
+      `<td><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${color(o.retailer)};margin-right:7px"></span>${o.retailer}`+
+      (i===0?'<span class="badge-lo">LOW</span>':'')+`</td>`+
+      `<td class="price">${fmt(o.price)}</td>`+
+      `<td class="delta">${delta}</td></tr>`;
+  }).join('');
+
+  const cheapest = offers[0].price;
+  d.innerHTML =
+    `<div class="detail-head">`+
+      (p.image_url?`<img src="${p.image_url}" onerror="this.style.visibility='hidden'">`:'')+
+      `<div style="flex:1;min-width:0"><h2>${escapeHtml(p.name)}</h2>`+
+      `<div class="sub">${escapeHtml(p.category||'')}${p.brand?' · '+escapeHtml(p.brand):''}</div></div>`+
+      `<button onclick='addToList(${JSON.stringify(JSON.stringify({name:p.name,category:p.category,price:cheapest,productId:pid})).replace(/'/g,"&#39;")})' `+
+        `style="align-self:flex-start;background:var(--accent);color:#06302c;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">+ Add to list</button>`+
+    `</div>`+
+    `<div class="section-label">Price across chains — spread ${fmt(hi-lo)}${lo>0?` (${Math.round(100*(hi-lo)/lo)}%)`:''}</div>`+
+    `<div class="spread-viz"><div class="spread-track"><div class="spread-fill" style="width:${fillW}%"></div>${nodes}</div></div>`+
+    `<table class="chains"><thead><tr><th>Chain</th><th>Latest price</th><th>vs cheapest</th></tr></thead><tbody>${rows}</tbody></table>`+
+    `<div class="section-label">Price history</div>`+
+    `<svg id="chart"></svg><div class="chart-legend" id="legend"></div>`+
+    `<div class="muted" style="font-size:11.5px;margin-top:10px">Click a chain row to load its price history.</div>`;
+
+  // auto-load history for all offers to populate the chart
+  loadAllHistory(data.offers.filter(o=>o.price!=null));
+}
+
+const histCache = {};
+async function loadHistory(offerId, retailer){
+  if(!histCache[offerId]) histCache[offerId] = await j(`/api/offer/${offerId}/history`);
+  drawChart();
+}
+async function loadAllHistory(offers){
+  for(const o of offers){
+    if(!histCache[o.offer_id]) histCache[o.offer_id] = await j(`/api/offer/${o.offer_id}/history`);
+    histCache[o.offer_id]._retailer = o.retailer;
+  }
+  drawChart();
+}
+
+function drawChart(){
+  const svg = document.getElementById('chart');
+  if(!svg) return;
+  const series = Object.entries(histCache)
+    .map(([id,h])=>({id, retailer:h._retailer||'', pts:h.filter(x=>x.price!=null)}))
+    .filter(s=>s.pts.length);
+  if(!series.length){ svg.innerHTML=''; return; }
+
+  const W = svg.clientWidth||520, H = 220, pad = {l:42,r:12,t:10,b:24};
+  let allT=[], allP=[];
+  series.forEach(s=>s.pts.forEach(p=>{ allT.push(+new Date(p.observed_at)); allP.push(p.price); }));
+  const t0=Math.min(...allT), t1=Math.max(...allT);
+  let p0=Math.min(...allP), p1=Math.max(...allP);
+  if(p0===p1){ p0-=1; p1+=1; }
+  const x = t => pad.l + (t1===t0?0:(t-t0)/(t1-t0))*(W-pad.l-pad.r);
+  const y = p => pad.t + (1-(p-p0)/(p1-p0))*(H-pad.t-pad.b);
+
+  let g = '';
+  // y gridlines
+  for(let i=0;i<=3;i++){
+    const val = p0+(p1-p0)*i/3, yy=y(val);
+    g += `<line x1="${pad.l}" y1="${yy}" x2="${W-pad.r}" y2="${yy}" stroke="#2a353e" stroke-width="1"/>`+
+         `<text x="6" y="${yy+4}" fill="#5c6c70" font-size="10" font-family="monospace">${val.toFixed(2)}</text>`;
+  }
+  series.forEach(s=>{
+    const pts = s.pts.slice().sort((a,b)=>new Date(a.observed_at)-new Date(b.observed_at));
+    const d = pts.map((p,i)=>`${i?'L':'M'}${x(+new Date(p.observed_at)).toFixed(1)},${y(p.price).toFixed(1)}`).join(' ');
+    g += `<path d="${d}" fill="none" stroke="${color(s.retailer)}" stroke-width="2" stroke-linejoin="round"/>`;
+  });
+  svg.innerHTML = g;
+
+  document.getElementById('legend').innerHTML = series.map(s=>
+    `<span><i style="background:${color(s.retailer)}"></i>${s.retailer}</span>`).join('');
+}
+
+function escapeHtml(s){ return (s||'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+init();
+</script>
+</body>
+</html>
