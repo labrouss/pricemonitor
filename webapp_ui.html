@@ -151,6 +151,7 @@
     <button id="nav-lists" class="navbtn" onclick="showView('lists')" data-i18n="nav_lists">Lists</button>
     <button id="nav-dupes" class="navbtn" onclick="showView('dupes')" data-i18n="nav_dupes">Duplicates</button>
     <a href="/shop" target="_blank" class="navbtn" style="text-decoration:none; display:inline-flex; align-items:center; gap:5px" data-i18n="nav_shop">🛒 Shopping app</a>
+    <button id="nav-sync" class="navbtn" onclick="syncSnapshot()" title="Download the latest published prices and merge into this database" data-i18n="nav_sync">⤓ Sync data</button>
   </nav>
   <select onchange="setLang(this.value)" id="lang-select" style="margin-left:8px;background:var(--panel);border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:4px 8px;font-size:12px;outline:none;cursor:pointer">
     <option value="el">🇬🇷 ΕΛ</option>
@@ -291,7 +292,7 @@
 /* ===== i18n ===== */
 const I18N = {
   el: {
-    nav_dashboard:"Πίνακας", nav_search:"Αναζήτηση", nav_lists:"Λίστες", nav_dupes:"Διπλότυπα", dupes_title:"Διπλότυπα προϊόντα", dupes_scan:"Σάρωση τώρα", dupes_mergeall:"Συγχώνευση όλων ≥95%", dupes_prune:"Εκκαθάριση παλαιών", dupes_export:"Εξαγωγή CSV", dupes_import:"Εισαγωγή CSV", dupes_help:"Οι ακριβείς αντιστοιχίσεις συγχωνεύονται αυτόματα. Τα παρακάτω ζεύγη μοιάζουν αλλά δεν είναι βέβαια — εγκρίνετε για συγχώνευση ή απορρίψτε.", nav_shop:"🛒 Εφαρμογή Ψωνίων",
+    nav_dashboard:"Πίνακας", nav_search:"Αναζήτηση", nav_lists:"Λίστες", nav_dupes:"Διπλότυπα", dupes_title:"Διπλότυπα προϊόντα", dupes_scan:"Σάρωση τώρα", dupes_mergeall:"Συγχώνευση όλων ≥95%", dupes_prune:"Εκκαθάριση παλαιών", dupes_export:"Εξαγωγή CSV", dupes_import:"Εισαγωγή CSV", dupes_help:"Οι ακριβείς αντιστοιχίσεις συγχωνεύονται αυτόματα. Τα παρακάτω ζεύγη μοιάζουν αλλά δεν είναι βέβαια — εγκρίνετε για συγχώνευση ή απορρίψτε.", nav_shop:"🛒 Εφαρμογή Ψωνίων", nav_sync:"⤓ Λήψη δεδομένων",
     stat_products:"προϊόντα", stat_chains:"αλυσίδες", stat_multichain:"πολλαπλές", stat_obs:"παρατηρήσεις",
     search_ph:"Αναζήτηση προϊόντων…  (πατήστε Enter)", search_btn:"Αναζήτηση",
     browse_category:"Περιήγηση ανά κατηγορία", show_all:"εμφάνιση όλων", show_less:"λιγότερα",
@@ -310,7 +311,7 @@ const I18N = {
     days7:"7 ημέρες", days30:"30 ημέρες", days60:"60 ημέρες",
   },
   en: {
-    nav_dashboard:"Dashboard", nav_search:"Search", nav_lists:"Lists", nav_dupes:"Duplicates", dupes_title:"Duplicate products", dupes_scan:"Scan now", dupes_mergeall:"Merge all ≥95%", dupes_prune:"Clean up stale", dupes_export:"Export CSV", dupes_import:"Import CSV", dupes_help:"Exact matches across chains are merged automatically. The pairs below look similar but aren't certain — approve to merge, or reject to keep them separate.", nav_shop:"🛒 Shopping app",
+    nav_dashboard:"Dashboard", nav_search:"Search", nav_lists:"Lists", nav_dupes:"Duplicates", dupes_title:"Duplicate products", dupes_scan:"Scan now", dupes_mergeall:"Merge all ≥95%", dupes_prune:"Clean up stale", dupes_export:"Export CSV", dupes_import:"Import CSV", dupes_help:"Exact matches across chains are merged automatically. The pairs below look similar but aren't certain — approve to merge, or reject to keep them separate.", nav_shop:"🛒 Shopping app", nav_sync:"⤓ Sync data",
     stat_products:"products", stat_chains:"chains", stat_multichain:"multi-chain", stat_obs:"observations",
     search_ph:"Search products…  (press Enter)", search_btn:"Search",
     browse_category:"Browse by category", show_all:"show all", show_less:"show less",
@@ -329,7 +330,7 @@ const I18N = {
     days7:"7 days", days30:"30 days", days60:"60 days",
   },
   de: {
-    nav_dashboard:"Übersicht", nav_search:"Suche", nav_lists:"Listen", nav_dupes:"Duplikate", dupes_title:"Doppelte Produkte", dupes_scan:"Jetzt scannen", dupes_mergeall:"Alle ≥95% zusammenführen", dupes_prune:"Veraltete bereinigen", dupes_export:"CSV exportieren", dupes_import:"CSV importieren", dupes_help:"Exakte Übereinstimmungen werden automatisch zusammengeführt. Die Paare unten ähneln sich, sind aber nicht sicher — bestätigen oder ablehnen.", nav_shop:"🛒 Einkaufs-App",
+    nav_dashboard:"Übersicht", nav_search:"Suche", nav_lists:"Listen", nav_dupes:"Duplikate", dupes_title:"Doppelte Produkte", dupes_scan:"Jetzt scannen", dupes_mergeall:"Alle ≥95% zusammenführen", dupes_prune:"Veraltete bereinigen", dupes_export:"CSV exportieren", dupes_import:"CSV importieren", dupes_help:"Exakte Übereinstimmungen werden automatisch zusammengeführt. Die Paare unten ähneln sich, sind aber nicht sicher — bestätigen oder ablehnen.", nav_shop:"🛒 Einkaufs-App", nav_sync:"⤓ Daten sync",
     stat_products:"Produkte", stat_chains:"Ketten", stat_multichain:"Mehrketten", stat_obs:"Beobachtungen",
     search_ph:"Produkte suchen…  (Enter drücken)", search_btn:"Suchen",
     browse_category:"Nach Kategorie", show_all:"alle anzeigen", show_less:"weniger",
@@ -513,6 +514,38 @@ async function importCsv(input){
   input.value = '';
   loadDupes();
   if(_lastStats){ try { const st = await j('/api/stats'); renderStatsBar(st); } catch(e){} }
+}
+
+async function syncSnapshot(){
+  if(!confirm('Download the latest published price snapshot and merge it into this database? New prices will be added as fresh observations.')) return;
+  const btn = document.getElementById('nav-sync');
+  const orig = btn.textContent;
+  btn.disabled = true;
+  const t0 = Date.now();
+  const tick = setInterval(()=>{ btn.textContent = '⤓ Syncing… ' + Math.floor((Date.now()-t0)/1000) + 's'; }, 500);
+  try {
+    const res = await (await fetch('/api/sync', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({})
+    })).json();
+    clearInterval(tick);
+    if(res.error){
+      btn.textContent = orig;
+      alert('Sync failed: ' + res.error);
+    } else {
+      const secs = Math.floor((Date.now()-t0)/1000);
+      btn.textContent = '✓ Synced';
+      alert(`Synced in ${secs}s — added ${res.ingested} prices` + (res.skipped?`, skipped ${res.skipped}`:'') + (res.errors?`, ${res.errors} errors`:'') + '.');
+      setTimeout(()=>{ btn.textContent = orig; }, 3000);
+      // refresh dashboard data
+      try { const st = await j('/api/stats'); if(typeof renderStatsBar==='function') renderStatsBar(st); } catch(e){}
+      if(typeof loadChanges==='function') loadChanges();
+    }
+  } catch(e) {
+    clearInterval(tick); btn.textContent = orig;
+    alert('Sync failed — see server logs.');
+  }
+  btn.disabled = false;
 }
 
 async function pruneStale(){

@@ -17,7 +17,7 @@ from datetime import datetime
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLineEdit, QTableWidget, QTableWidgetItem, QLabel, QCheckBox,
-    QSplitter, QHeaderView, QAbstractItemView,
+    QSplitter, QHeaderView, QAbstractItemView, QPushButton, QMessageBox,
 )
 from PySide6.QtCore import Qt, QTimer, QPointF, QThread, Signal
 from PySide6.QtGui import QPainter, QPixmap
@@ -56,9 +56,34 @@ class ImageLoader(QThread):
             self.loaded.emit(self.url, b"")
 
 
+class SyncWorker(QThread):
+    """Download the published snapshot and merge it into the DB, off the UI thread."""
+    done = Signal(dict)      # result counts
+    failed = Signal(str)     # error message
+
+    def __init__(self, db_path, repo="labrouss/pricemonitor"):
+        super().__init__()
+        self.db_path = db_path
+        self.repo = repo
+
+    def run(self):
+        try:
+            import sync_snapshot
+            from storage import Store
+            store = Store(self.db_path)      # own connection for this thread
+            try:
+                res = sync_snapshot.run(store, repo=self.repo)
+            finally:
+                store.close()
+            self.done.emit(res)
+        except Exception as e:
+            self.failed.emit(str(e))
+
+
 class PriceMonitorApp(QMainWindow):
     def __init__(self, db_path="prices.db"):
         super().__init__()
+        self.db_path = db_path
         self.store = Store(db_path)
         self.results = []  # current search results (dicts)
 
@@ -73,10 +98,16 @@ class PriceMonitorApp(QMainWindow):
         self.cb_offer = QCheckBox("On offer")
         self.cb_stock = QCheckBox("In stock")
 
+        self.btn_sync = QPushButton("⤓ Sync data")
+        self.btn_sync.setToolTip(
+            "Download the latest published prices and merge into this database")
+        self.btn_sync.clicked.connect(self.on_sync)
+
         top = QHBoxLayout()
         top.addWidget(self.search_box, 1)
         top.addWidget(self.cb_offer)
         top.addWidget(self.cb_stock)
+        top.addWidget(self.btn_sync)
 
         # ---- Results table ----
         self.table = QTableWidget()
@@ -148,6 +179,39 @@ class PriceMonitorApp(QMainWindow):
         self.run_search()  # initial population
 
     # ---------------------------------------------------------------
+    def on_sync(self):
+        resp = QMessageBox.question(
+            self, "Sync data",
+            "Download the latest published price snapshot and merge it into this "
+            "database?\n\nNew prices are added as fresh observations.",
+            QMessageBox.Yes | QMessageBox.No)
+        if resp != QMessageBox.Yes:
+            return
+        self.btn_sync.setEnabled(False)
+        self.btn_sync.setText("⤓ Syncing…")
+        self.status.setText("Syncing latest prices…")
+        self._sync = SyncWorker(self.db_path)
+        self._sync.done.connect(self.on_sync_done)
+        self._sync.failed.connect(self.on_sync_failed)
+        self._sync.start()
+
+    def on_sync_done(self, res):
+        self.btn_sync.setEnabled(True)
+        self.btn_sync.setText("⤓ Sync data")
+        msg = (f"Synced — added {res.get('ingested', 0)} prices"
+               + (f", skipped {res['skipped']}" if res.get('skipped') else "")
+               + (f", {res['errors']} errors" if res.get('errors') else "") + ".")
+        self.status.setText(msg)
+        self.run_search()      # refresh the view with new data
+
+    def on_sync_failed(self, err):
+        self.btn_sync.setEnabled(True)
+        self.btn_sync.setText("⤓ Sync data")
+        self.status.setText("Sync failed.")
+        QMessageBox.warning(self, "Sync failed",
+                            f"Could not sync the snapshot:\n{err}\n\n"
+                            "Check that the repo has a published release.")
+
     def run_search(self):
         q = self.search_box.text().strip()
         self.results = self.store.search_products(
