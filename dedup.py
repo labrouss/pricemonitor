@@ -97,6 +97,12 @@ _PROMO_RE = re.compile(r"\b(\d+)\s*\+\s*(\d+)\b")
 # A leading size descriptor like "No7", "Νο 1", "Large/Μεγάλο/Μεσαίο" that
 # distinguishes variants (diaper size, bag size). Numbers after No/Νο.
 _NO_RE = re.compile(r"\b(?:no|ν[οο])\s*[.:]?\s*(\d+)\b", re.IGNORECASE)
+# A number qualifying a distinguishing noun: "7 Αστέρων" (star rating),
+# "5 Φρούτα" (fruit count), "3 Δημητριακά". The number distinguishes the
+# product (7* brandy != 3* brandy), so capture (number, noun) pairs.
+_COUNTQUAL_RE = re.compile(
+    r"\b(\d+)\s+(αστερων|αστερια|αστερι|φρουτα|φρουτων|δημητριακα|"
+    r"λαχανικα|βοτανα|γευσεις|στρωσεις|φυλλα)\b", re.IGNORECASE)
 # SPF factor (sunscreen) — SPF30 vs SPF50 are different products.
 _SPF_RE = re.compile(r"\bspf\s*(\d+)\b", re.IGNORECASE)
 # Fat / content percentage — "5%", "1,5%", "2,0%". Normalized to a number so
@@ -152,6 +158,12 @@ def quantity_signature(text):
     if nm:
         sig["no"] = int(nm.group(1))
 
+    # number qualifying a distinguishing noun (7 Αστέρων, 5 Φρούτα): keyed by
+    # the noun so "7 Αστέρων" vs "3 Αστέρων" conflict, but "5 Φρούτα" vs
+    # "5 Αστέρων" (different nouns) don't spuriously clash.
+    for m in _COUNTQUAL_RE.finditer(t):
+        sig["cq_" + m.group(2)] = int(m.group(1))
+
     # SPF factor (sunscreen)
     sp = _SPF_RE.search(t)
     if sp:
@@ -183,7 +195,9 @@ def signatures_conflict(a_text, b_text):
     """True if two names share a quantity component but with DIFFERENT values —
     i.e. they are distinguishable variants and must not match."""
     sa, sb = quantity_signature(a_text), quantity_signature(b_text)
-    for key in ("size", "promo", "pieces", "no", "spf", "dim", "pct", "shade"):
+    fixed = ("size", "promo", "pieces", "no", "spf", "dim", "pct", "shade")
+    cq_keys = {k for k in sa if k.startswith("cq_")} | {k for k in sb if k.startswith("cq_")}
+    for key in tuple(fixed) + tuple(cq_keys):
         if key in sa and key in sb and sa[key] != sb[key]:
             return True
     return False
