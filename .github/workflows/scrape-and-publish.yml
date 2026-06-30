@@ -27,7 +27,7 @@ jobs:
     strategy:
       fail-fast: false         # one retailer failing must not cancel the others
       matrix:
-        retailer: [posokanei, sklavenitis, mymarket, bazaar, lidl]
+        retailer: [posokanei, sklavenitis, mymarket, bazaar, lidl, ab]
     runs-on: ubuntu-latest
     timeout-minutes: 350       # just under the 6h hard cap
     steps:
