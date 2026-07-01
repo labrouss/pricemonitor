@@ -50,6 +50,6 @@
 # SQLite+JSON+CSV then pushes to a GitHub Release. Needs GITHUB_TOKEN + GITHUB_REPO
 # in the container env (set in docker-compose, NOT committed). Skips silently if
 # the token isn't set, so it's safe to leave enabled before you configure it. --
-30 11 * * * flock -w 1800 /tmp/publish.lock sh -c 'cd /app && python3 export_snapshot.py --out /app/snapshot && [ -n "$GITHUB_TOKEN" ] && ./publish_snapshot.sh /app/snapshot || echo "snapshot exported; GITHUB_TOKEN unset, skipping publish"' >> /var/log/cron/publish.log 2>&1
+30 11 * * * flock -w 1800 /tmp/publish.lock sh -c 'cd /app && python3 export_snapshot.py --out /app/snapshot && [ -n "$GITHUB_TOKEN" ] && python3 publish_snapshot.py /app/snapshot || echo "snapshot exported; GITHUB_TOKEN unset, skipping publish"' >> /var/log/cron/publish.log 2>&1
 
 # Empty line required at end of a crontab:

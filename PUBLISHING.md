@@ -58,7 +58,7 @@ docker exec -ti -e DB_BACKEND=postgres price_monitor-worker-1 \
 
 docker exec -ti -e DB_BACKEND=postgres \
     -e GITHUB_TOKEN=... -e GITHUB_REPO=you/price-monitor \
-    price_monitor-worker-1 ./publish_snapshot.sh /app/snapshot
+    price_monitor-worker-1 python3 publish_snapshot.py /app/snapshot
 ```
 
 ## How users fetch the data
